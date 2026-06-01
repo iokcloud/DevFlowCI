@@ -24,7 +24,9 @@ check() {
 # 🔴 阻断级
 echo "阻断级:"
 check "py_compile main" python -m py_compile main.py config.py
-check "py_compile workflow" python -m py_compile workflow/executor.py workflow/auto_fix.py
+check "py_compile workflow" python -m py_compile workflow/executor.py workflow/auto_fix.py workflow/error_logger.py
+check "py_compile core" python -m py_compile memory/case_store.py database/models.py
+check "pytest" python -m pytest tests/ -q --tb=no
 check "密钥扫描" bash -c '! rg -l "(api.?key|secret|password)\s*=\s*[\"'\''][^\"'\'']{20,}" --glob "!*.example" --glob "!.env*" . 2>/dev/null | head -1 | grep -q .'
 check "merge冲突" bash -c '! rg "<<<<<<<|>>>>>>>|=======" . 2>/dev/null | head -1 | grep -q .'
 

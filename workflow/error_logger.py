@@ -155,7 +155,7 @@ async def get_error_stats(
     try:
         from database.db import async_session_factory
         from database.models import ErrorLog, ErrorStatus
-        from sqlalchemy import func, select
+        from sqlalchemy import case, func, select
 
         async with async_session_factory() as db:
             # 总数统计
@@ -187,7 +187,7 @@ async def get_error_stats(
                     ErrorLog.module_name,
                     func.count().label("cnt"),
                     func.sum(
-                        func.case(
+                        case(
                             (ErrorLog.status == ErrorStatus.OPEN, 1),
                             else_=0,
                         )

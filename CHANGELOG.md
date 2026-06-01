@@ -35,9 +35,13 @@
 - 核心模块单元测试（`tests/`，32 项：auto_fix / case_store / models）
 - GitHub Actions CI（语法检查 + pytest）
 - `pytest-asyncio` 依赖
+- `tests/test_error_logger.py`、`tests/test_executor.py`（路由、日志队列、DB 同步）
+- `scripts/stop_server.bat`、`scripts/install_hooks.bat`、`scripts/pre_commit_check.bat`
 
 ### 变更
-- `docs/DEVELOPMENT.md`：单元测试说明、Windows 端口占用 FAQ
+- `docs/DEVELOPMENT.md`：单元测试说明、Windows 端口占用 FAQ、pre-commit 安装
+- `README.md`：CI 状态徽章
+- `CHANGELOG.md`：仓库链接改为 iokcloud/DevFlowCI
 
 ## [0.2.0] - 2026-05-31
 
@@ -45,5 +49,5 @@
 - 多 Agent 工作流、异常自愈、版本化交付、Autopilot 模板
 - AI 协作规范（AI_COLLABORATION_GUIDE.md）
 
-[0.4.0]: https://github.com/your-org/DevFlowCI/compare/v0.2.0...v0.4.0
-[0.2.0]: https://github.com/your-org/DevFlowCI/releases/tag/v0.2.0
+[0.4.0]: https://github.com/iokcloud/DevFlowCI/compare/v0.2.0...v0.4.0
+[0.2.0]: https://github.com/iokcloud/DevFlowCI/releases/tag/v0.2.0

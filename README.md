@@ -1,5 +1,7 @@
 # DevFlow CI
 
+[![CI](https://github.com/iokcloud/DevFlowCI/actions/workflows/ci.yml/badge.svg)](https://github.com/iokcloud/DevFlowCI/actions/workflows/ci.yml)
+
 > 项目型开发伙伴 — 自动化多 Agent 编码工作流系统 **v0.4.0**
 
 用户输入自然语言需求，系统自动规划、拆解、分派给不同 AI Agent 并行/串行执行，最终产出完整的项目源代码、测试和部署文件，并通过审查循环保证质量。支持在已有项目目录上进行增量开发，并提供项目级记忆。

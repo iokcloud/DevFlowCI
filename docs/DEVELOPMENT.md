@@ -99,7 +99,17 @@ pytest tests/ -v
 提交前可选：
 
 ```bash
+scripts\pre_commit_check.bat
+# 或 Git Bash
 bash scripts/pre_commit_check.sh
+```
+
+安装 git pre-commit 钩子（提交前自动跑上述检查）：
+
+```bash
+scripts\install_hooks.bat
+# 或 Git Bash
+bash scripts/install_hooks.sh
 ```
 
 ## 目录约定

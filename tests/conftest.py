@@ -46,6 +46,24 @@ async def db_session():
     await engine.dispose()
 
 
+@pytest.fixture
+async def memory_db(monkeypatch):
+    """Patch database.db.async_session_factory to in-memory SQLite."""
+    engine = create_async_engine(
+        "sqlite+aiosqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+    )
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    factory = async_sessionmaker(
+        engine, class_=AsyncSession, expire_on_commit=False
+    )
+    monkeypatch.setattr("database.db.async_session_factory", factory)
+    yield factory
+    await engine.dispose()
+
+
 def write_json_cases(path: Path, cases: list[dict]) -> None:
     """Helper: write case list to JSON file."""
     path.write_text(

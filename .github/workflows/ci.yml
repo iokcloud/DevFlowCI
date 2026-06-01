@@ -24,7 +24,7 @@ jobs:
       - name: Syntax check
         run: |
           python -m py_compile main.py config.py
-          python -m py_compile workflow/auto_fix.py workflow/executor.py
+          python -m py_compile workflow/auto_fix.py workflow/executor.py workflow/error_logger.py
           python -m py_compile memory/case_store.py database/models.py
 
       - name: Unit tests
