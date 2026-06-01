@@ -1976,3 +1976,53 @@ body {
     gap: 8px;
     flex-wrap: wrap;
 }
+
+/* 模块统计条 */
+.module-stats-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 8px 0 12px;
+}
+.stat-chip {
+    font-size: 0.78rem;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgba(48, 54, 61, 0.6);
+    border: 1px solid var(--border);
+}
+.stat-passed { border-color: var(--success); color: var(--success); }
+.stat-blocked { border-color: var(--warning); color: var(--warning); }
+.stat-coding { border-color: var(--accent); color: var(--accent); }
+.stat-failed { border-color: var(--danger); color: var(--danger); }
+
+.recent-errors-section {
+    margin: 12px 0 16px;
+    padding: 12px 14px;
+    border: 1px solid rgba(248, 113, 113, 0.35);
+    border-radius: var(--radius);
+    background: rgba(248, 113, 113, 0.06);
+}
+.recent-errors-section h3 {
+    font-size: 0.9rem;
+    margin-bottom: 8px;
+}
+.recent-error-item {
+    font-size: 0.78rem;
+    padding: 4px 0;
+    border-bottom: 1px solid rgba(48, 54, 61, 0.4);
+}
+.recent-error-item.warn { color: var(--warning); }
+.recent-error-item.error { color: var(--danger); }
+.recent-error-time { opacity: 0.7; margin-right: 6px; }
+.recent-error-mod { margin-right: 6px; font-weight: 600; }
+.biz-json-pre {
+    margin-top: 8px;
+    padding: 10px;
+    font-size: 0.72rem;
+    overflow: auto;
+    max-height: 240px;
+    background: var(--bg);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+}

@@ -1,25 +1,27 @@
 # 项目当前状态
 
-> 最后更新：2026-06-01（会话: 20260601-08）
-> 更新原因：v0.4.1 — 集成测试扩展、商业 E2E、Nightly 增强
+> 最后更新：2026-06-01（会话: 20260601-09）
+> 更新原因：v0.4.2 — E2E 质量、MVP 裁剪、UI 可观测性
 
 ## 基本信息
-- 当前阶段：**v0.4.1 待发布** — 测试纵深 + 商业 E2E + CI 增强
+- 当前阶段：**v0.4.2 待发布**
 - 最后完成的功能：
-  - ✅ 集成测试扩展（商业文档模式、多模块 blocked、GlobalReviewer dict 回归）
-  - ✅ `test_flow_business.py` + 每周商业 E2E workflow
-  - ✅ Nightly E2E：concurrency、scenario 选择、Node24 环境变量
-  - ✅ Nightly E2E 已通过（`DEEPSEEK_API_KEY` 已配置）
+  - ✅ 商业确认后 MVP 模块裁剪（`BUSINESS_MVP_MAX_MODULES=3`）
+  - ✅ `test_flow_quality.py` — E2E 至少 1 模块 passed 断言
+  - ✅ Web UI：模块统计条、recent_error_logs、商业计划 JSON
+  - ✅ `scripts/learnings_cluster.py` + 集成测试扩展
+  - ✅ Nightly 失败可选 Slack 通知（`SLACK_WEBHOOK_URL` secret）
+  - ✅ 商业 E2E 已通过（run 26754355647）
 - 正在进行的任务：无
 
 ## 模块完成度
 | 模块名称 | 完成度 | 测试覆盖 | 备注 |
 |----------|--------|----------|------|
-| 记忆检索 | 100% | 6 tests | learnings/decisions/sessions 等 |
-| CI/CD | 100% | CI + nightly + weekly business | nightly 需 DEEPSEEK_API_KEY secret |
-| 商业文档模式 | 100% | 集成 + E2E 脚本 | force_mode=business / mode=business |
+| CI/CD | 100% | CI + nightly + weekly | smoke + business E2E 均绿 |
+| 商业文档模式 | 100% | 集成 + E2E | MVP 裁剪降低模块数 |
+| Web UI | 90% | 手动 | 模块统计 + 异常面板 |
 
 ## 下一步计划
-1. [ ] 扩展集成测试（更多边界：insufficient_info 兜底、多方案规划）
-2. [ ] 经验自动聚类（LEARNINGS > 50 条后）
-3. [ ] Web UI 可观测性增强（模块进度、ErrorLog 面板）
+1. [ ] 分析 blocked 模块根因（审查策略 / LLM 输出质量）
+2. [ ] LEARNINGS > 50 条后启用自动聚类 cron
+3. [ ] 配置 `SLACK_WEBHOOK_URL`（可选）接收 E2E 失败通知

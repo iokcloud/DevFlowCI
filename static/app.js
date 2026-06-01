@@ -38,6 +38,9 @@ const els = {
     currentStatusBadge: $("#current-status-badge"),
     progressBar: $("#progress-bar"),
     progressText: $("#progress-text"),
+    moduleStatsBar: $("#module-stats-bar"),
+    recentErrorsSection: $("#recent-errors-section"),
+    recentErrorsContent: $("#recent-errors-content"),
     phaseStepper: $("#phase-stepper"),
     modulesGrid: $("#modules-grid"),
     logSection: $("#log-section"),
@@ -375,6 +378,9 @@ async function pollStatus(projectId) {
         });
         currentProjectData = project;
         renderStatus(project);
+        renderModuleStatsBar(project);
+        renderRecentErrorLogs(project);
+        loadErrorStats(projectId);
     } catch (e) {
         // 网络错误不处理，下次轮询重试
     }
@@ -555,6 +561,9 @@ function renderStatus(project) {
         showPlanComparison(project);
         showDependencyPanel(project);
         showVersionPanel(project.project_id);
+        if (project.modules && project.modules.length) {
+            renderModules(project.modules);
+        }
         return;
     }
 
@@ -623,6 +632,52 @@ async function autoConfirmPlan(projectId) {
     } catch (e) {
         // ignore
     }
+}
+
+// ── 模块统计条 & 最近异常 ──────────────────────────────
+
+function renderModuleStatsBar(project) {
+    const bar = els.moduleStatsBar;
+    if (!bar) return;
+    const modules = project.modules || [];
+    if (modules.length === 0) {
+        bar.classList.add("hidden");
+        return;
+    }
+    const passed = modules.filter((m) => m.status === "passed").length;
+    const blocked = modules.filter((m) => m.status === "blocked").length;
+    const coding = modules.filter((m) =>
+        ["coding", "analyzing", "testing", "reviewing", "auto_fixing"].includes(m.status)
+    ).length;
+    const failed = modules.length - passed - blocked - coding;
+
+    bar.classList.remove("hidden");
+    bar.innerHTML = `
+        <span class="stat-chip stat-total">模块 ${modules.length}</span>
+        <span class="stat-chip stat-passed">✅ ${passed} 通过</span>
+        <span class="stat-chip stat-coding">⏳ ${coding} 进行中</span>
+        <span class="stat-chip stat-blocked">🚧 ${blocked} 阻塞</span>
+        ${failed > 0 ? `<span class="stat-chip stat-failed">❌ ${failed} 失败</span>` : ""}
+    `;
+}
+
+function renderRecentErrorLogs(project) {
+    const section = els.recentErrorsSection;
+    const content = els.recentErrorsContent;
+    if (!section || !content) return;
+    const logs = project.recent_error_logs || [];
+    if (logs.length === 0) {
+        section.classList.add("hidden");
+        return;
+    }
+    section.classList.remove("hidden");
+    content.innerHTML = logs.slice(-8).reverse().map((e) => `
+        <div class="recent-error-item ${(e.level || "INFO").toLowerCase()}">
+            <span class="recent-error-time">${escapeHtml((e.timestamp || "").slice(11, 19))}</span>
+            ${e.module_name ? `<span class="recent-error-mod">[${escapeHtml(e.module_name)}]</span>` : ""}
+            <span class="recent-error-msg">${escapeHtml(e.message || "")}</span>
+        </div>
+    `).join("");
 }
 
 // ── 模块卡片 ────────────────────────────────────────
@@ -1704,6 +1759,10 @@ function showBusinessPlan(project, alignment) {
         ${risks.length > 0 ? `<div class="biz-section"><h4>⚠️ 风险与对策</h4>${risks.map(r => `
             <div class="biz-risk ${r.severity || 'medium'}"><strong>${escapeHtml(r.risk)}</strong><p>${escapeHtml(r.mitigation || "")}</p></div>`).join("")}</div>` : ""}
         <div class="biz-section"><h4>💡 后续建议</h4><p>${escapeHtml(recs)}</p></div>
+        <details class="biz-raw-json" style="margin-top:12px;">
+            <summary style="cursor:pointer;color:var(--text-secondary);">📄 查看原始 JSON</summary>
+            <pre class="biz-json-pre">${escapeHtml(JSON.stringify(alignment, null, 2))}</pre>
+        </details>
     </div>
     <div class="biz-actions">
         <button class="btn-primary" onclick="confirmBusinessPlan('${project.project_id}')">✅ 确认计划</button>

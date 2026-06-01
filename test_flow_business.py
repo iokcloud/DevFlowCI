@@ -192,6 +192,13 @@ async def main() -> int:
                 if not business_plan_seen and status in ("completed", "completed_with_warnings"):
                     print("❌ 未检测到 plan_type=business，商业模式可能未生效")
                     return 1
+                if status in ("completed", "completed_with_warnings"):
+                    from test_flow_quality import check_module_quality
+
+                    ok, msg = check_module_quality(passed, blocked, mod_count)
+                    if not ok:
+                        print(f"❌ {msg}")
+                        return 1
                 return 0 if status in ("completed", "completed_with_warnings") else 1
 
             if elapsed > TIMEOUT_S:

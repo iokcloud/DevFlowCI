@@ -212,6 +212,15 @@ async def main() -> int:
                     print(f"\n最近错误 ({len(errs)} 条):")
                     for e in errs[-3:]:
                         print(f"  [{e.get('level')}] {e.get('message', '')[:120]}")
+                if status in ("completed", "completed_with_warnings"):
+                    from test_flow_quality import check_module_quality
+
+                    ok, msg = check_module_quality(passed, blocked, mod_count)
+                    if not ok:
+                        print(f"❌ {msg}")
+                        return 1
+                    if msg:
+                        print(f"⚠️ {msg}")
                 return 0 if status in ("completed", "completed_with_warnings") else 1
 
             if elapsed > TIMEOUT_S:

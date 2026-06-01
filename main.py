@@ -45,6 +45,7 @@ from config import (
     DEEPSEEK_API_KEY,
     DEEPSEEK_BASE_URL,
     DEEPSEEK_MODEL,
+    BUSINESS_MVP_MAX_MODULES,
 )
 from database.db import init_db
 from database.models import (
@@ -130,7 +131,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="DevFlow CI",
     description="自动化多 Agent 编码工作流系统 — 项目型开发伙伴",
-    version="0.4.1",
+    version="0.4.2",
     lifespan=lifespan,
 )
 
@@ -569,6 +570,10 @@ async def confirm_plan(
                     )
                     tech_requirement_parts.append(f"路线图：{phases_desc}")
                 tech_requirement = "。".join(tech_requirement_parts) if tech_requirement_parts else project.requirement
+                tech_requirement += (
+                    f"。【MVP约束】本次仅实现最多 {BUSINESS_MVP_MAX_MODULES} 个核心模块，"
+                    "优先最小可行产品，避免过度拆分。"
+                )
                 # 更新项目需求为技术需求
                 project.requirement = tech_requirement[:2000]
                 await push_log(project_id, "INFO", f"商业计划已确认，提取技术需求进入开发管线：{tech_requirement[:200]}...")
@@ -599,6 +604,7 @@ async def confirm_plan(
                 "delivery_path": "",
                 "status": "planning",
                 "errors": [],
+                "mvp_max_modules": BUSINESS_MVP_MAX_MODULES,
             }
 
             _register_task(project_id, _run_workflow_after_alignment(project_id, state))
