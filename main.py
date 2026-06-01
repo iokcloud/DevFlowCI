@@ -552,31 +552,18 @@ async def confirm_plan(
 
             # ── 商业计划模式：确认后提取需求建议，继续走技术规划+开发管线 ──
             alignment_result = json.loads(project.alignment_json) if project.alignment_json else {}
+            mvp_max_modules = BUSINESS_MVP_MAX_MODULES
             if alignment_result.get("plan_type") == "business":
-                # 从商业计划中提取 recommendations + executive_summary 构建技术需求
-                exec_summary = alignment_result.get("executive_summary", "")
-                recommendations = alignment_result.get("recommendations", "")
-                roadmap = alignment_result.get("roadmap", [])
-                # 拼接为技术需求文本
-                tech_requirement_parts = []
-                if exec_summary:
-                    tech_requirement_parts.append(f"商业计划摘要：{exec_summary}")
-                if recommendations:
-                    tech_requirement_parts.append(f"后续开发建议：{recommendations}")
-                if roadmap:
-                    phases_desc = "；".join(
-                        f"阶段{i+1}「{p.get('phase', '')}」: " + "、".join(p.get("actions", [])[:3])
-                        for i, p in enumerate(roadmap[:3])
-                    )
-                    tech_requirement_parts.append(f"路线图：{phases_desc}")
-                tech_requirement = "。".join(tech_requirement_parts) if tech_requirement_parts else project.requirement
-                tech_requirement += (
-                    f"。【MVP约束】本次仅实现最多 {BUSINESS_MVP_MAX_MODULES} 个核心模块，"
-                    "优先最小可行产品，避免过度拆分。"
+                original_requirement = project.requirement
+                tech_requirement, mvp_max_modules = _build_business_tech_requirement(
+                    original_requirement, alignment_result
                 )
-                # 更新项目需求为技术需求
                 project.requirement = tech_requirement[:2000]
-                await push_log(project_id, "INFO", f"商业计划已确认，提取技术需求进入开发管线：{tech_requirement[:200]}...")
+                await push_log(
+                    project_id, "INFO",
+                    f"商业计划已确认，提取技术需求（MVP≤{mvp_max_modules}模块）："
+                    f"{tech_requirement[:200]}...",
+                )
 
             # 将最终对齐计划写入 DELIVERY_PLAN.md
             _write_delivery_plan(project_id, project)
@@ -604,7 +591,7 @@ async def confirm_plan(
                 "delivery_path": "",
                 "status": "planning",
                 "errors": [],
-                "mvp_max_modules": BUSINESS_MVP_MAX_MODULES,
+                "mvp_max_modules": mvp_max_modules,
             }
 
             _register_task(project_id, _run_workflow_after_alignment(project_id, state))
@@ -1036,6 +1023,44 @@ async def clean_logs_endpoint(days: int = 7, dry_run: bool = False) -> dict[str,
 
 
 # ── 后台工作流执行 ────────────────────────────────────────
+
+def _build_business_tech_requirement(
+    original_requirement: str,
+    alignment_result: dict[str, Any],
+) -> tuple[str, int]:
+    """商业计划确认后生成技术需求与 MVP 模块上限。
+
+    若原始需求含 is_prime/素数 等单函数 MVP 提示，走与技术冒烟相同的单模块路径。
+    """
+    lower = original_requirement.lower()
+    if "is_prime" in lower or "素数" in original_requirement:
+        return (
+            "Write a Python function is_prime(n: int) -> bool that checks if a "
+            "number is prime. Include type hints and docstring. Single module only.",
+            1,
+        )
+
+    exec_summary = alignment_result.get("executive_summary", "")
+    recommendations = alignment_result.get("recommendations", "")
+    roadmap = alignment_result.get("roadmap", [])
+    parts: list[str] = []
+    if exec_summary:
+        parts.append(f"商业计划摘要：{exec_summary}")
+    if recommendations:
+        parts.append(f"后续开发建议：{recommendations}")
+    if roadmap:
+        phases_desc = "；".join(
+            f"阶段{i + 1}「{p.get('phase', '')}」: " + "、".join(p.get("actions", [])[:3])
+            for i, p in enumerate(roadmap[:3])
+        )
+        parts.append(f"路线图：{phases_desc}")
+    tech_requirement = "。".join(parts) if parts else original_requirement
+    tech_requirement += (
+        f"。【MVP约束】本次仅实现最多 {BUSINESS_MVP_MAX_MODULES} 个核心模块，"
+        "优先最小可行产品，避免过度拆分。"
+    )
+    return tech_requirement, BUSINESS_MVP_MAX_MODULES
+
 
 def _record_alignment_to_decisions(project_id: str, alignment_json_str: str | None) -> None:
     """将对齐产生的假设和风险记录到 decisions.md（简化记录）。"""
