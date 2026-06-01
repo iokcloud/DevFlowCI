@@ -9,6 +9,7 @@ from sqlalchemy import select
 
 from database.models import ModuleStatus, ModuleTask, Project, ProjectStatus
 from workflow.executor import (
+    _apply_mvp_module_cap,
     _detect_document_type,
     _estimate_tokens,
     _persist_plan_modules,
@@ -67,6 +68,18 @@ class TestHelpers:
 
     def test_detect_document_type_generic(self):
         assert _detect_document_type("随便一些文字") == "generic"
+
+    def test_apply_mvp_module_cap_business(self):
+        modules = [{"module_name": f"m{i}"} for i in range(6)]
+        state = {"alignment_result": {"plan_type": "business"}}
+        capped = _apply_mvp_module_cap(modules, state)
+        assert len(capped) == 3
+
+    def test_apply_mvp_module_cap_explicit(self):
+        modules = [{"module_name": f"m{i}"} for i in range(5)]
+        state = {"mvp_max_modules": 2}
+        capped = _apply_mvp_module_cap(modules, state)
+        assert len(capped) == 2
 
 
 class TestLanggraphRouting:

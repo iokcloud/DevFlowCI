@@ -62,6 +62,7 @@ from config import (
     MAX_VERSIONS_KEPT,
     ARCHIVE_DIR_NAME,
     AUTOPILOT_ENABLED,
+    BUSINESS_MVP_MAX_MODULES,
 )
 from memory.case_store import CaseStore
 from memory.project_memory import ProjectMemoryStore
@@ -949,6 +950,30 @@ print("此模块尚未完成，请参考 TODO.md 进行开发。")
     return stub
 
 
+def _resolve_mvp_module_cap(state: WorkflowState) -> int | None:
+    """商业 MVP 或 state 显式指定的模块上限。"""
+    cap = state.get("mvp_max_modules")
+    if cap is not None:
+        try:
+            return max(1, int(cap))
+        except (TypeError, ValueError):
+            pass
+    alignment = state.get("alignment_result") or {}
+    if isinstance(alignment, dict) and alignment.get("plan_type") == "business":
+        return BUSINESS_MVP_MAX_MODULES
+    return None
+
+
+def _apply_mvp_module_cap(
+    modules: list[dict[str, Any]],
+    state: WorkflowState,
+) -> list[dict[str, Any]]:
+    cap = _resolve_mvp_module_cap(state)
+    if cap is None or len(modules) <= cap:
+        return modules
+    return modules[:cap]
+
+
 # ── 工作流执行器 ──────────────────────────────────────────
 
 class WorkflowExecutor:
@@ -1227,11 +1252,19 @@ class WorkflowExecutor:
                 await push_log(pid, "INFO", f"📝 需求摘要: {req_summary}...")
                 state["status"] = "planning"
 
+                mvp_cap = _resolve_mvp_module_cap(state)
+                planning_context = state.get("project_context", "")
+                if mvp_cap:
+                    planning_context += (
+                        f"\n\n【MVP硬性约束】最多拆解 {mvp_cap} 个模块，"
+                        "请合并相近功能，优先最小可行产品。"
+                    )
+
                 await push_log(pid, "INFO", "🤔 PM Agent 正在分析需求，拆解模块结构...")
                 await _notify_ai_stream(pid, "planner", "start")
                 plan_a, plan_b, comparison, errors = await self._planner.plan_alternatives(
                     state["requirement"],
-                    project_context=state.get("project_context", ""),
+                    project_context=planning_context,
                     project_memory_text=project_memory_text,
                 )
                 if errors:
@@ -1277,6 +1310,16 @@ class WorkflowExecutor:
                     for i, m in enumerate(modules[:5]):
                         desc = m.get("description", "")[:80]
                         await push_log(pid, "INFO", f"  模块{i+1}: {m.get('module_name', m.get('module', '?'))} — {desc}")
+
+                original_count = len(modules)
+                modules = _apply_mvp_module_cap(modules, state)
+                if len(modules) < original_count:
+                    await push_log(
+                        pid, "INFO",
+                        f"✂️ 商业 MVP 裁剪：{original_count} → {len(modules)} 个模块",
+                    )
+                    plan_a["modules"] = modules
+                    module_count = len(modules)
 
                 state["plan_json"] = json.dumps(plan_a, ensure_ascii=False)
                 state["plan_modules"] = modules

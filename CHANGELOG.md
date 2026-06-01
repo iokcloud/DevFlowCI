@@ -4,6 +4,25 @@
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-06-01
+
+### 新增
+- `test_flow_quality.py` — E2E 模块质量断言（`TEST_FLOW_MIN_PASSED`）
+- `scripts/learnings_cluster.py` — LEARNINGS 按类别聚类摘要
+- Web UI：模块统计条、最近 ERROR/WARN 面板、商业计划原始 JSON
+- Nightly 失败可选 Slack 通知（`SLACK_WEBHOOK_URL` secret）
+- 集成测试：`insufficient_info` 商业兜底、多方案 `alternative_plan`
+
+### 变更
+- 商业确认后 MVP 模块裁剪（`BUSINESS_MVP_MAX_MODULES=3`）
+- `test_flow_business.py` 读取 `alignment` 字段；超时 1800s
+- 版本号 v0.4.2
+
+### 修复
+- PR #6/#7：商业 E2E 字段检测与超时
+
+[0.4.2]: https://github.com/iokcloud/DevFlowCI/releases/tag/v0.4.2
+
 ## [0.4.1] - 2026-06-01
 
 ### 新增

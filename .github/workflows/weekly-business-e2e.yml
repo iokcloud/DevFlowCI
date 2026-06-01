@@ -70,6 +70,17 @@ jobs:
           TEST_FLOW_TIMEOUT: "1800"
         run: python test_flow_business.py
 
+      - name: Notify on failure
+        if: failure()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          if [ -n "$SLACK_WEBHOOK_URL" ]; then
+            curl -sS -X POST -H 'Content-type: application/json' \
+              --data "{\"text\":\"DevFlow CI weekly business E2E failed: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" \
+              "$SLACK_WEBHOOK_URL"
+          fi
+
       - name: Upload deliveries on failure
         if: failure() && steps.key.outputs.skip != 'true'
         uses: actions/upload-artifact@v4

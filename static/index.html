@@ -9,7 +9,7 @@
 <body>
     <header class="header">
         <h1>🤖 DevFlow CI</h1>
-        <span class="subtitle">项目型开发伙伴 v0.4</span>
+        <span class="subtitle">项目型开发伙伴 v0.4.2</span>
         <span id="health-status" class="health">● 连接中...</span>
     </header>
 
@@ -99,6 +99,7 @@
                     <div id="progress-bar" class="progress-bar"></div>
                 </div>
                 <div id="progress-text" class="progress-text"></div>
+                <div id="module-stats-bar" class="module-stats-bar hidden"></div>
                 <!-- 四阶段指示器 -->
                 <div id="phase-stepper" class="phase-stepper">
                     <div class="phase-step" data-phase="align">
@@ -125,6 +126,12 @@
 
             <!-- 模块卡片 -->
             <div id="modules-grid" class="modules-grid"></div>
+
+            <!-- 最近 ERROR/WARN（来自 API recent_error_logs） -->
+            <div id="recent-errors-section" class="recent-errors-section hidden">
+                <h3>⚠️ 最近异常</h3>
+                <div id="recent-errors-content" class="recent-errors-content"></div>
+            </div>
 
             <!-- 需求对齐面板（aligning 过渡动画 / aligned 确认页） -->
             <div id="alignment-panel" class="alignment-panel hidden">

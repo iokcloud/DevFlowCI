@@ -1,6 +1,6 @@
 # 本地开发指南
 
-> 版本：v0.4.1 | 最后更新：2026-06-01
+> 版本：v0.4.2 | 最后更新：2026-06-01
 
 ## 环境要求
 
@@ -148,6 +148,24 @@ python scripts/memory_search.py "自愈" --source learnings --top 5
 
 ```bash
 gh workflow run nightly-e2e.yml -f scenario=business
+```
+
+E2E 质量断言（至少 N 个模块 passed，默认 1）：
+
+```bash
+set TEST_FLOW_MIN_PASSED=1
+python test_flow.py
+```
+
+商业 MVP 模块上限（默认 3，环境变量 `BUSINESS_MVP_MAX_MODULES`）。
+
+可选 Slack 通知：在 GitHub Secrets 配置 `SLACK_WEBHOOK_URL`，E2E 失败时推送链接。
+
+### 经验聚类
+
+```bash
+python scripts/learnings_cluster.py
+python scripts/learnings_cluster.py --json
 ```
 
 提交前可选：
