@@ -1101,6 +1101,7 @@ def _build_business_tech_requirement(
     """商业计划确认后生成技术需求与 MVP 模块上限。
 
     若原始需求含 is_prime/素数 等单函数 MVP 提示，走与技术冒烟相同的单模块路径。
+    当 ``BUSINESS_MVP_MAX_MODULES > 1`` 时，按 Phase-1 多项 action 生成多模块技术需求。
     """
     lower = original_requirement.lower()
     if "is_prime" in lower or "素数" in original_requirement:
@@ -1113,8 +1114,14 @@ def _build_business_tech_requirement(
     exec_summary = alignment_result.get("executive_summary", "")
     recommendations = alignment_result.get("recommendations", "")
     roadmap = alignment_result.get("roadmap", [])
+    cap_limit = BUSINESS_MVP_MAX_MODULES
 
-    # 纯商业：Phase 1 单模块 MVP（避免 PM 拆成多个抽象模块后全部 blocked）
+    if cap_limit > 1 and (roadmap or recommendations or exec_summary):
+        return _build_business_multi_module_requirement(
+            exec_summary, recommendations, roadmap, cap_limit,
+        )
+
+    # cap=1：Phase-1 单模块 MVP
     if roadmap:
         first = roadmap[0]
         phase_name = first.get("phase", "第一阶段")
@@ -1151,6 +1158,35 @@ def _build_business_tech_requirement(
         "优先最小可行产品，避免过度拆分。"
     )
     return tech_requirement, BUSINESS_MVP_MAX_MODULES
+
+
+def _build_business_multi_module_requirement(
+    exec_summary: str,
+    recommendations: str,
+    roadmap: list[dict[str, Any]],
+    cap_limit: int,
+) -> tuple[str, int]:
+    """BUSINESS_MVP_MAX_MODULES>1 时，从 Phase-1 提取最多 cap 项能力作为多模块 MVP。"""
+    first = roadmap[0] if roadmap else {}
+    phase_name = first.get("phase", "第一阶段")
+    actions: list[str] = list(first.get("actions") or [])
+    if not actions and recommendations:
+        actions = [recommendations[:200]]
+    if not actions and exec_summary:
+        actions = [exec_summary[:200]]
+    while len(actions) < cap_limit:
+        actions.append(f"核心能力子模块 {len(actions) + 1}")
+    actions = actions[:cap_limit]
+
+    items = "；".join(f"模块{i + 1}「{a}」" for i, a in enumerate(actions))
+    tech_requirement = (
+        f"商业计划「{phase_name}」技术 MVP（最多 {cap_limit} 个独立 Python 模块）：{items}。"
+        "每个模块单文件≤120行，含 type hints、docstring、pytest，可独立运行测试；"
+        "禁止 SQLite/CLI/多子系统；模块间松耦合。"
+    )
+    if exec_summary:
+        tech_requirement = f"背景：{exec_summary[:300]}。{tech_requirement}"
+    return tech_requirement, cap_limit
 
 
 def _record_alignment_to_decisions(project_id: str, alignment_json_str: str | None) -> None:

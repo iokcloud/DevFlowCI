@@ -1360,17 +1360,21 @@ class WorkflowExecutor:
 
                 mvp_cap = _resolve_mvp_module_cap(state)
                 planning_context = state.get("project_context", "")
-                if mvp_cap:
+                if mvp_cap and mvp_cap > 1:
                     planning_context += (
                         f"\n\n【MVP硬性约束】最多拆解 {mvp_cap} 个模块，"
                         "请合并相近功能，优先最小可行产品。"
+                        f"\n请规划恰好 {mvp_cap} 个模块（或更少），"
+                        "每个模块对应一项独立、可测试的核心能力。"
                     )
-                    if mvp_cap == 1:
-                        planning_context += (
-                            "\n【强制单模块】modules 数组必须恰好 1 个元素；"
-                            "description 只描述一个可运行的 Python 核心能力，"
-                            "禁止 SQLite/CLI/多子系统拆分。"
-                        )
+                elif mvp_cap == 1:
+                    planning_context += (
+                        f"\n\n【MVP硬性约束】最多拆解 {mvp_cap} 个模块，"
+                        "请合并相近功能，优先最小可行产品。"
+                        "\n【强制单模块】modules 数组必须恰好 1 个元素；"
+                        "description 只描述一个可运行的 Python 核心能力，"
+                        "禁止 SQLite/CLI/多子系统拆分。"
+                    )
 
                 await push_log(pid, "INFO", "🤔 PM Agent 正在分析需求，拆解模块结构...")
                 await _notify_ai_stream(pid, "planner", "start")
@@ -1884,7 +1888,15 @@ class WorkflowExecutor:
         description = module.get("description", "")
         module_type = module.get("type", "backend")
         context = state.get("project_context", "")
-        mvp_mode = _resolve_mvp_module_cap(state) == 1
+        mvp_cap = _resolve_mvp_module_cap(state)
+        mvp_mode = mvp_cap == 1
+        alignment = state.get("alignment_result") or {}
+        business_mvp_relaxed = (
+            isinstance(alignment, dict)
+            and alignment.get("plan_type") == "business"
+            and (mvp_cap or 0) > 1
+        )
+        use_mvp_test_gate = mvp_mode or business_mvp_relaxed
 
         await push_log(
             pid, "INFO",
@@ -1958,7 +1970,7 @@ class WorkflowExecutor:
                 )
 
                 exec_test_result: dict[str, Any] | None = None
-                if mvp_mode:
+                if use_mvp_test_gate:
                     exec_test_result = await self._run_module_test_and_log(
                         pid, module_name, code.test_code,
                     )
@@ -1995,10 +2007,11 @@ class WorkflowExecutor:
                         pass
                     return
 
-                if mvp_mode and _exec_tests_passed(exec_test_result):
+                if use_mvp_test_gate and _exec_tests_passed(exec_test_result):
+                    label = "MVP" if mvp_mode else "商业多模块"
                     await push_log(
                         pid, "SUCCESS",
-                        f"[{module_name}] MVP 模式：单元测试通过，审查问题已降级放行",
+                        f"[{module_name}] {label} 模式：单元测试通过，审查问题已降级放行",
                         module_name=module_name,
                     )
                     state["module_results"][module_name] = {

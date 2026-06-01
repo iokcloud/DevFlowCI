@@ -8,7 +8,7 @@
     TEST_FLOW_TIMEOUT           最大等待秒数（默认 900）
     TEST_FLOW_POLL_SEC          轮询间隔（默认 4）
     TEST_FLOW_HEARTBEAT         心跳输出间隔（默认 15）
-    TEST_FLOW_BUSINESS_MODE     smoke（默认，含 is_prime 短路径）| full（纯商业 Phase-1）
+    TEST_FLOW_BUSINESS_MODE     smoke（默认，含 is_prime 短路径）| full（纯商业 Phase-1）| multi（多模块，需 BUSINESS_MVP_MAX_MODULES>1）
 
 前置: 服务已启动，.env 中 DEEPSEEK_API_KEY 有效。
 """
@@ -52,9 +52,20 @@ BUSINESS_REQUIREMENT_FULL = (
     "请给出简洁商业计划，并聚焦第一阶段可交付的技术 MVP。"
 )
 
-BUSINESS_REQUIREMENT = (
-    BUSINESS_REQUIREMENT_FULL if BUSINESS_MODE == "full" else BUSINESS_REQUIREMENT_SMOKE
+BUSINESS_REQUIREMENT_MULTI = (
+    "基于市场调研：银发经济市场规模增长，竞争分析显示健康管理赛道机会，"
+    "消费者付费意愿提升，订阅制营收模型可行。"
+    "请给出简洁商业计划；Phase-1 技术 MVP 可拆分为多个独立 Python 模块分别实现。"
 )
+
+if BUSINESS_MODE == "multi":
+    BUSINESS_REQUIREMENT = BUSINESS_REQUIREMENT_MULTI
+elif BUSINESS_MODE == "full":
+    BUSINESS_REQUIREMENT = BUSINESS_REQUIREMENT_FULL
+else:
+    BUSINESS_REQUIREMENT = BUSINESS_REQUIREMENT_SMOKE
+
+EXPECTED_MODULES = int(os.getenv("TEST_FLOW_EXPECT_MODULES", "0"))
 
 
 async def _confirm_once(
@@ -107,6 +118,9 @@ async def main() -> int:
     print("=" * 60)
     print("DevFlow CI test_flow_business.py")
     print(f"  模式: {BUSINESS_MODE} | 超时: {TIMEOUT_S}s | 轮询: {POLL_SEC}s | 心跳: {HEARTBEAT_SEC}s")
+    if BUSINESS_MODE == "multi":
+        mvp_env = os.getenv("BUSINESS_MVP_MAX_MODULES", "?")
+        print(f"  多模块: BUSINESS_MVP_MAX_MODULES={mvp_env} | 期望模块≥{max(EXPECTED_MODULES, 2)}")
     print("=" * 60)
 
     async with httpx.AsyncClient(timeout=httpx.Timeout(600, connect=10)) as client:
@@ -212,6 +226,18 @@ async def main() -> int:
                     if not ok:
                         print(f"❌ {msg}")
                         return 1
+                    if BUSINESS_MODE == "multi":
+                        min_mods = max(EXPECTED_MODULES, 2)
+                        if mod_count < min_mods:
+                            print(
+                                f"❌ 多模块断言失败: 规划模块数={mod_count}，"
+                                f"期望≥{min_mods}（请确认服务端 BUSINESS_MVP_MAX_MODULES>1）"
+                            )
+                            return 1
+                        print(
+                            f"✅ 多模块断言: {mod_count} 个模块，"
+                            f"通过={passed} 阻塞={blocked}（要求≥1 passed）"
+                        )
                 return 0 if status in ("completed", "completed_with_warnings") else 1
 
             if elapsed > TIMEOUT_S:
