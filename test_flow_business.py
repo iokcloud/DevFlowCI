@@ -80,9 +80,13 @@ async def _confirm_once(
 
 
 def _alignment_plan_type(data: dict[str, Any]) -> str:
-    alignment = data.get("alignment_result") or {}
-    if isinstance(alignment, dict):
-        return str(alignment.get("plan_type", ""))
+    """从 GET /api/projects/{id} 响应读取 plan_type（字段名为 alignment）。"""
+    for key in ("alignment", "alignment_result"):
+        alignment = data.get(key) or {}
+        if isinstance(alignment, dict):
+            plan_type = alignment.get("plan_type", "")
+            if plan_type:
+                return str(plan_type)
     return ""
 
 
