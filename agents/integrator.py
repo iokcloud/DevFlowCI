@@ -220,7 +220,7 @@ class GlobalReviewerAgent:
 {blocked_section}
 
 集成结构：
-{integration.project_structure[:1000]}
+{str(integration.project_structure)[:1000]}
 
 主入口代码（部分）：
 ```python
