@@ -118,6 +118,19 @@ powershell -ExecutionPolicy Bypass -File scripts/setup_branch_protection.ps1
 
 日常合并流程：新建分支 → push → `gh pr create` → CI 绿后 merge。
 
+### 记忆检索
+
+```bash
+python scripts/memory_search.py "关键词"
+python scripts/memory_search.py "自愈" --source learnings --top 5
+```
+
+### Nightly E2E
+
+仓库含 `.github/workflows/nightly-e2e.yml`（每日定时 + 手动触发）。
+
+在 GitHub **Settings → Secrets → Actions** 配置 `DEEPSEEK_API_KEY` 后才会真正跑 `test_flow.py`；未配置时 workflow 会跳过并 warning。
+
 提交前可选：
 
 ```bash
