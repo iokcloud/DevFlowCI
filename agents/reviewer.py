@@ -59,6 +59,16 @@ FAIL: 模块名称
 """
 
 
+REVIEWER_MVP_ADDON = """
+
+## MVP 模式（单模块最小交付）
+当前为 MVP 单模块，审查标准适当放宽：
+- 核心功能与基本测试覆盖到位即可 PASS
+- 轻微风格/docstring 瑕疵可写入 summary，但不要因此 FAIL
+- 勿因缺少非关键边缘 case 或过度完美的异常处理而 FAIL
+"""
+
+
 # ── 审查者 Agent ──────────────────────────────────────────
 
 class ReviewerAgent:
@@ -142,6 +152,7 @@ class ReviewerAgent:
         code: str,
         test_code: str,
         retry_count: int = 0,
+        mvp_mode: bool = False,
     ) -> ReviewResult:
         """执行代码审查。
 
@@ -151,6 +162,7 @@ class ReviewerAgent:
             code: 模块代码
             test_code: 测试代码
             retry_count: 当前重试次数（用于上下文）
+            mvp_mode: MVP 单模块时放宽审查标准
 
         Returns:
             ReviewResult
@@ -162,7 +174,9 @@ class ReviewerAgent:
                 f"请特别注意之前指出的问题是否已修复。\n"
             )
 
-        prompt = f"""{REVIEWER_SYSTEM_PROMPT}
+        mvp_note = REVIEWER_MVP_ADDON if mvp_mode else ""
+
+        prompt = f"""{REVIEWER_SYSTEM_PROMPT}{mvp_note}
 
 {retry_note}
 模块名称：{module_name}

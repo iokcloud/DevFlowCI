@@ -1771,6 +1771,7 @@ class WorkflowExecutor:
         description = module.get("description", "")
         module_type = module.get("type", "backend")
         context = state.get("project_context", "")
+        mvp_mode = _resolve_mvp_module_cap(state) == 1
 
         await push_log(
             pid, "INFO",
@@ -1837,6 +1838,7 @@ class WorkflowExecutor:
                     code.code,
                     code.test_code,
                     retry_count=retry,
+                    mvp_mode=mvp_mode,
                 )
 
                 if review.passed:

@@ -12,7 +12,7 @@
 | 类别 | 计数 | 最新条目 |
 |------|------|----------|
 | Bug — 代码错误 | 0 | — |
-| 设计缺陷 | 10 | 教训 #011 |
+| 设计缺陷 | 11 | 教训 #012 |
 | 协作流程 | 1 | 教训 #002 |
 | 安全 | 0 | — |
 | 性能 | 0 | — |
@@ -206,6 +206,26 @@
   - 错误日志统一使用结构化表存储，避免仅依赖文本文件
   - 维护 API 应提供 dry_run 模式，允许安全预览清理效果
 - **Prompt 改进**：否 — 本次改进为基础设施层，不涉及 Agent Prompt
+
+---
+
+### 教训 #012：纯商业 MVP 应聚焦 Phase-1 单模块，而非 PM 多模块拆分
+
+- **日期**：2026-06-01
+- **来源**：商业 E2E 3/3 blocked（run 26755443769）与 nightly smoke 对比
+- **类别**：设计缺陷
+- **现象**：商业确认后技术规划拆成 3 个抽象模块，审查全部 FAIL → blocked，工作流仍 `completed` 但交付为 stub。
+- **原因**：
+  1. `_build_business_tech_requirement` 对非 is_prime 需求仅拼接摘要 + `cap=3`，PM 仍倾向多模块拆分。
+  2. Reviewer 对 MVP 代码使用与完整产品相同的严格标准，轻微问题即 FAIL。
+- **解决方案**：
+  1. 商业确认后取 roadmap 第一阶段首项 action 生成**单模块**技术需求（`mvp_max_modules=1`）。
+  2. Reviewer 在 `mvp_mode=True` 时附加放宽指引；Executor 在 cap=1 时自动启用。
+  3. Weekly E2E 用 `TEST_FLOW_BUSINESS_MODE=full` 验证纯商业路径（无 is_prime 短路径）。
+- **预防措施**：
+  - 商业 → 技术衔接应显式指定「Phase-1 单模块」而非仅模块数上限
+  - E2E 质量断言（`test_flow_quality`）与 blocked 分析脚本并用
+- **Prompt 改进**：是 — Reviewer 增加 `REVIEWER_MVP_ADDON`；规划侧已有 MVP cap prompt
 
 ---
 
