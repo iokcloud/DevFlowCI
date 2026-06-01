@@ -46,3 +46,4 @@ websockets==16.0
 xxhash==3.7.0
 zstandard==0.25.0
 pytest==8.3.4
+pytest-asyncio==0.25.2

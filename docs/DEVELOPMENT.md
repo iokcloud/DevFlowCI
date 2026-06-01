@@ -33,6 +33,12 @@ python main.py
 ./start.bat
 ```
 
+停止服务（含 `--reload` 孤儿 worker）：
+
+```bash
+scripts\stop_server.bat
+```
+
 浏览器访问：http://127.0.0.1:8000
 
 > 修改 `workflow/` 或 `main.py` 后请重启服务（Ctrl+C 后重新 `start.bat`），否则 E2E 测试可能仍跑旧逻辑。
@@ -82,6 +88,20 @@ python test_flow.py
 python test_e2e.py
 ```
 
+### 单元测试（无需启动服务）
+
+```bash
+pytest tests/ -v
+```
+
+覆盖 `workflow/auto_fix.py`、`memory/case_store.py`、`database/models.py`（32 项）。CI 在 push/PR 时自动运行，见 `.github/workflows/ci.yml`。
+
+提交前可选：
+
+```bash
+bash scripts/pre_commit_check.sh
+```
+
 ## 目录约定
 
 | 路径 | 用途 |
@@ -100,7 +120,7 @@ python test_e2e.py
 | 创建项目后卡在 `aligned` | 需调用 `confirm_plan` 或在前端确认；test_flow.py 会自动处理 |
 | pytest 不可用 | 安装 `pip install pytest`；未安装时系统降级为语法检查 |
 | API 连接失败 | 检查 `DEEPSEEK_BASE_URL` 是否含 `/v1` |
-| 端口占用 | 修改启动命令中的 `--port` 或关闭占用 8000 的进程 |
+| 端口占用 | 修改启动命令中的 `--port`；Windows 上 `--reload` 父进程被杀后子 worker 可能仍占用 8000，用 `netstat -ano \| findstr :8000` 找到 PID 后 `taskkill /F /PID <pid>` |
 
 ## 文档导航
 

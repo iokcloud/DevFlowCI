@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Syntax check
+        run: |
+          python -m py_compile main.py config.py
+          python -m py_compile workflow/auto_fix.py workflow/executor.py
+          python -m py_compile memory/case_store.py database/models.py
+
+      - name: Unit tests
+        run: pytest tests/ -v --tb=short
+        env:
+          DEEPSEEK_API_KEY: test-key-for-ci

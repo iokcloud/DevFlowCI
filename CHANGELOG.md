@@ -29,6 +29,16 @@
 - Git 仓库初始化 + baseline commit
 - E2E 冒烟验证通过（test_flow ~289s → completed）
 
+## [Unreleased]
+
+### 新增
+- 核心模块单元测试（`tests/`，32 项：auto_fix / case_store / models）
+- GitHub Actions CI（语法检查 + pytest）
+- `pytest-asyncio` 依赖
+
+### 变更
+- `docs/DEVELOPMENT.md`：单元测试说明、Windows 端口占用 FAQ
+
 ## [0.2.0] - 2026-05-31
 
 ### 新增

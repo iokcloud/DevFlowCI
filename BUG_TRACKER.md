@@ -25,8 +25,8 @@
 
 ## 工程债务（下一阶段）
 
-| ID | 描述 | 优先级 |
-|----|------|--------|
-| DEBT-005 | 核心模块零单元测试 | 高 |
-| DEBT-006 | 无 CI/CD | 中 |
-| DEBT-009 | backend 修改后需重启 uvicorn | 低 |
+| ID | 描述 | 优先级 | 状态 |
+|----|------|--------|------|
+| DEBT-005 | 核心模块单元测试 | 高 | ✅ 32 tests（auto_fix / case_store / models） |
+| DEBT-006 | CI/CD | 中 | ✅ `.github/workflows/ci.yml` 已配置 |
+| DEBT-009 | `--reload` 孤儿 worker 占端口 | 低 | 已知，见 DEVELOPMENT.md FAQ |
