@@ -8,8 +8,13 @@
 - DeepSeek V4 分 Agent 配置：`create_llm_reasoning` / `create_llm_json` / `create_llm_text`（thinking + json_object）
 - SSE 推送 `project_snapshot`，Web 状态轮询降为 10s 兜底
 
+### 验证
+- v4-pro multi（分 Agent，2 次连续本地）：`proj-fa53e28408da` ~3m29s、`proj-f382a95e50ea` ~2m32s，均 2 passed / 0 blocked
+- v4-flash multi 本地：`proj-e976cf570f96`，~2m05s，2 passed / 0 blocked
+- 对比：未分 Agent 的 Pro multi 曾 0/2 blocked（~32min）；分 Agent 后 Pro 稳定可用
+
 ### 变更
-- 默认 LLM 改为 `deepseek-v4-pro`（`.env.example`、`config.py`）
+- 生产建议：CI/日常默认 **v4-flash**；重要交付可用 **v4-pro**（须启用分 Agent 配置）
 - E2E workflow 超时上调以适配 Pro 推理耗时
 - Weekly Business E2E 增加 `business-multi` job（cap=2，与 full 并行）
 - `business-multi-e2e.yml` 失败时 Slack 通知

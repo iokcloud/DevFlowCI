@@ -2,7 +2,15 @@
 
 from __future__ import annotations
 
+import pytest
+
 from main import _build_business_tech_requirement
+
+
+@pytest.fixture(autouse=True)
+def _default_business_cap_one(monkeypatch):
+    """单模块测试不受本地 .env BUSINESS_MVP_MAX_MODULES 影响。"""
+    monkeypatch.setattr("main.BUSINESS_MVP_MAX_MODULES", 1)
 
 
 def test_is_prime_short_path_single_module():

@@ -23,30 +23,33 @@ pip install -r requirements.txt
 # 3. 环境变量
 cp .env.example .env
 # 编辑 .env，填入 DEEPSEEK_API_KEY
-# 默认 DEEPSEEK_MODEL=deepseek-v4-pro（高质量）；快速冒烟可改为 deepseek-v4-flash
+# 默认 DEEPSEEK_MODEL=deepseek-v4-flash（CI/日常）；重要交付改为 deepseek-v4-pro
 ```
 
-### LLM 模型（默认 v4-pro）
+### LLM 模型
 
-| 变量 | 默认值 | 说明 |
+| 变量 | 推荐值 | 说明 |
 |------|--------|------|
-| `DEEPSEEK_MODEL` | `deepseek-v4-pro` | 全部 Agent 共用；须在 **启动服务前** 写入 `.env` |
-| `DEEPSEEK_REASONING_EFFORT` | `high` | 规划/对齐 Agent 的 V4 thinking 力度 |
-| `DEEPSEEK_BASE_URL` | `https://api.deepseek.com/v1` | OpenAI 兼容端点 |
+| `DEEPSEEK_MODEL` | `deepseek-v4-flash`（CI/日常） | 重要交付改 `deepseek-v4-pro` |
+| `DEEPSEEK_REASONING_EFFORT` | `high` | 规划类 Agent（Pro 时） |
+| `DEEPSEEK_BASE_URL` | `https://api.deepseek.com/v1` | DevFlow 服务端用 OpenAI 兼容端点 |
 
-**Agent 调用策略（代码内已配置）**：
+**Agent 调用策略（f9653e7 起，代码内已配置）**：
 - 对齐 / PM / 商业规划 → `thinking=enabled` + `json_object`
 - 分析 / 编码 / 集成 / 修复 → `thinking=disabled` + `json_object`
 - 审查（PASS/FAIL 文本）→ `thinking=disabled`
 
-**Web 实时性**：项目状态经 SSE `project_snapshot` 推送；HTTP 轮询 10s 兜底。
+**Web 实时性**：SSE `project_snapshot` 推送；HTTP 轮询 10s 兜底。
 
-**生产建议（v4-pro）**：
-- 商业 MVP 保持 `BUSINESS_MVP_MAX_MODULES=1` 或 `2`
-- E2E / 本地测试适当加长超时，例如 `TEST_FLOW_TIMEOUT=3600`
-- Pro 单次交付约为 chat 的 **2～4 倍** 耗时，属正常现象
+**Multi E2E 实测（cap=2，本地）**：
 
-快速迭代（省成本）可临时改：`DEEPSEEK_MODEL=deepseek-v4-flash` 或 `deepseek-chat`，改后重启服务。
+| 模型 | 耗时 | 结果 |
+|------|------|------|
+| v4-flash | ~2m | 2/2 passed |
+| v4-pro（分 Agent，2 次） | ~2.5–3.5m | 2/2 passed |
+| v4-pro（未分 Agent） | ~32m | 0/2 blocked |
+
+**双 API 说明**：DevFlow 使用 `/v1` + `json_object`。Claude Code 等外部工具可单独配置 `ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic`，无需改 DevFlow 服务端。
 
 ## 启动服务
 

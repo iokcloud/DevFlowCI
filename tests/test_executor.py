@@ -69,7 +69,8 @@ class TestHelpers:
     def test_detect_document_type_generic(self):
         assert _detect_document_type("随便一些文字") == "generic"
 
-    def test_apply_mvp_module_cap_business(self):
+    def test_apply_mvp_module_cap_business(self, monkeypatch):
+        monkeypatch.setattr("workflow.executor.BUSINESS_MVP_MAX_MODULES", 1)
         modules = [{"module_name": f"m{i}"} for i in range(6)]
         state = {"alignment_result": {"plan_type": "business"}}
         capped = _apply_mvp_module_cap(modules, state)
