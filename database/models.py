@@ -81,6 +81,7 @@ class Project(Base):
     )
     plan_json: Mapped[Optional[str]] = Column(Text, nullable=True)
     alignment_json: Mapped[Optional[str]] = Column(Text, nullable=True)  # 需求对齐分析结果 JSON
+    context_scan_json: Mapped[Optional[str]] = Column(Text, nullable=True)  # 目录文档扫描摘要
     final_report: Mapped[Optional[str]] = Column(Text, nullable=True)
     delivery_path: Mapped[Optional[str]] = Column(String(512), nullable=True)
     test_report_path: Mapped[Optional[str]] = Column(String(512), nullable=True)

@@ -9,7 +9,7 @@
 <body>
     <header class="header">
         <h1>🤖 DevFlow CI</h1>
-        <span class="subtitle">项目型开发伙伴 v0.4.2</span>
+        <span class="subtitle">项目型开发伙伴 v0.4.9</span>
         <span id="health-status" class="health">● 连接中...</span>
     </header>
 
@@ -21,7 +21,7 @@
                 <h2>📝 需求描述</h2>
                 <textarea
                     id="requirement-input"
-                    placeholder="描述你想要构建或修改的项目...&#10;&#10;例如：添加用户认证功能，或修复登录页面样式问题。&#10;（留空则自动分析已有项目目录）"
+                    placeholder="描述你想要构建或修改的项目...&#10;&#10;例如：基于目录中的市场分析报告生成商业计划并落地 MVP。&#10;（留空则自动分析已选目录中的文档）"
                     rows="5"
                 ></textarea>
             </section>
@@ -35,8 +35,12 @@
                     <button type="button" id="btn-clear-dir" class="btn-clear-dir hidden" title="清除已选目录">&times;</button>
                 </div>
                 <div class="dir-hint">
-                    点击上方区域浏览并选择已有项目目录；不选择则为新项目。
+                    选资料目录后可用「自动判断」：无代码、仅有文档时会走商业计划；含代码工程时走技术开发。需强制某种路径时再选手动模式。
                 </div>
+                <label id="force-new-wrap" class="force-new-wrap hidden">
+                    <input type="checkbox" id="force-new-checkbox" />
+                    <span>同目录强制新建（不复用未完成项目）</span>
+                </label>
             </section>
 
             <!-- 提交按钮 -->
@@ -52,7 +56,19 @@
 
             <!-- 3. 历史项目列表 -->
             <section class="history-section">
-                <h2>📋 历史项目</h2>
+                <div class="history-section-header">
+                    <h2>📋 历史项目</h2>
+                    <div class="history-toolbar">
+                        <select id="history-filter" class="history-filter" title="筛选状态">
+                            <option value="all">全部</option>
+                            <option value="active">进行中</option>
+                            <option value="completed">已完成</option>
+                            <option value="stale">停滞</option>
+                            <option value="failed">失败/需审查</option>
+                        </select>
+                        <button type="button" id="btn-history-cleanup" class="btn-history-cleanup" title="批量清理">🧹</button>
+                    </div>
+                </div>
                 <div id="history-list" class="history-list">
                     <div class="empty-state">暂无历史项目</div>
                 </div>
@@ -65,17 +81,17 @@
             <div id="welcome-panel" class="welcome-panel">
                 <div class="welcome-icon">🚀</div>
                 <h2>欢迎使用 DevFlow CI</h2>
-                <p>在左侧输入需求或选择已有项目目录，<br>AI 将自动完成需求分析、方案规划、编码构建。</p>
+                <p>在左侧输入需求或选择资料/项目目录，<br>AI 将完成文档分析、商业计划（可选）、方案规划、编码构建与交付。</p>
                 <div class="welcome-features">
                     <div class="welcome-feature">
                         <span class="feature-icon">📝</span>
                         <strong>描述需求</strong>
-                        <span>用自然语言描述你想构建什么</span>
+                        <span>用自然语言描述目标，或留空让 AI 读目录文档</span>
                     </div>
                     <div class="welcome-feature">
                         <span class="feature-icon">📂</span>
-                        <strong>选择目录</strong>
-                        <span>为已有项目添加新功能或修复问题</span>
+                        <strong>选择资料目录</strong>
+                        <span>市场报告、提示词库（.md/.json）→ 商业计划 → MVP</span>
                     </div>
                     <div class="welcome-feature">
                         <span class="feature-icon">🤖</span>
@@ -99,6 +115,7 @@
                     <div id="progress-bar" class="progress-bar"></div>
                 </div>
                 <div id="progress-text" class="progress-text"></div>
+                <div id="context-scan-bar" class="context-scan-bar hidden"></div>
                 <div id="module-stats-bar" class="module-stats-bar hidden"></div>
                 <!-- 四阶段指示器 -->
                 <div id="phase-stepper" class="phase-stepper">

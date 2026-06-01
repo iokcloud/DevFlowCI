@@ -361,7 +361,144 @@ IGNORED_DIRS = {
     ".mypy_cache", ".pytest_cache", ".ruff_cache",
     ".next", ".nuxt", ".cache", "coverage",
     "egg-info", ".egg-info", "site-packages",
+    "deliveries",
 }
+
+# 文档扫描：扩展提示词库 / 调研资料常见格式
+DOC_EXTENSIONS = {".md", ".txt", ".rst", ".adoc", ".docx", ".json", ".yaml", ".yml", ".csv"}
+DOC_PRIORITY_KEYWORDS = (
+    "市场", "报告", "调研", "research", "market", "analysis", "商业", "business",
+    "prompt", "提示词", "strategy", "战略", "竞品", "用户", "prd", "plan",
+)
+MAX_DOC_FILES = 30
+MAX_DOC_CHARS_DEFAULT = 8000
+MAX_DOC_CHARS_BUSINESS = 24000
+
+
+def _doc_priority_score(rel_path: str) -> int:
+    """文件名/路径优先级：市场报告、提示词库等靠前。"""
+    lower = rel_path.lower().replace("\\", "/")
+    score = 0
+    for kw in DOC_PRIORITY_KEYWORDS:
+        if kw in lower:
+            score += 10
+    name = lower.rsplit("/", 1)[-1]
+    if name in ("readme.md", "readme.txt"):
+        score += 3
+    if "prompt" in lower or "提示" in lower:
+        score += 5
+    # 根目录文件优先于深层嵌套
+    depth = lower.count("/")
+    score -= depth
+    return score
+
+
+def _collect_doc_files(dir_path: Path) -> list[Path]:
+    """递归收集文档文件并按业务优先级排序。"""
+    doc_files: list[Path] = []
+    for ext in DOC_EXTENSIONS:
+        for fp in dir_path.glob(f"**/*{ext}"):
+            parts = fp.relative_to(dir_path).parts
+            if any(p in IGNORED_DIRS or p.startswith(".") for p in parts):
+                continue
+            doc_files.append(fp)
+    doc_files = list({fp.resolve() for fp in doc_files})
+    doc_files.sort(
+        key=lambda p: (
+            -_doc_priority_score(str(p.relative_to(dir_path))),
+            str(p.relative_to(dir_path)).lower(),
+        )
+    )
+    return doc_files[:MAX_DOC_FILES]
+
+
+def _read_json_as_text(fp: Path) -> str:
+    """将 JSON 提示词库转为可读文本供 LLM 摘要。"""
+    try:
+        raw = fp.read_text(encoding="utf-8", errors="ignore")
+        data = json.loads(raw)
+    except Exception:
+        return fp.read_text(encoding="utf-8", errors="ignore")
+
+    def _flatten(obj: Any, prefix: str = "") -> list[str]:
+        lines: list[str] = []
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                key = f"{prefix}.{k}" if prefix else str(k)
+                if isinstance(v, (dict, list)):
+                    lines.extend(_flatten(v, key))
+                elif v is not None and str(v).strip():
+                    lines.append(f"{key}: {str(v).strip()[:500]}")
+        elif isinstance(obj, list):
+            for i, item in enumerate(obj[:50]):
+                lines.extend(_flatten(item, f"{prefix}[{i}]" if prefix else f"[{i}]"))
+        else:
+            if str(obj).strip():
+                lines.append(f"{prefix}: {str(obj).strip()[:500]}" if prefix else str(obj)[:500])
+        return lines
+
+    flat = _flatten(data)
+    header = f"# JSON 资料: {fp.name}\n"
+    body = "\n".join(flat[:120])
+    return header + body if body else raw[:4000]
+
+
+def _read_doc_file_content(fp: Path) -> str:
+    """读取单个文档文件内容。"""
+    suffix = fp.suffix.lower()
+    if suffix == ".docx":
+        return _read_docx(fp)
+    if suffix == ".json":
+        return _read_json_as_text(fp)
+    return fp.read_text(encoding="utf-8", errors="ignore")
+
+
+def build_context_scan_meta(
+    structured_context: dict[str, Any],
+    *,
+    directory: str = "",
+) -> dict[str, Any]:
+    """构建可持久化/展示的目录扫描元数据。"""
+    analyzed = structured_context.get("analyzed_files", [])
+    files_meta = [
+        {
+            "file": af.get("file", ""),
+            "summary": (af.get("summary") or "")[:200],
+        }
+        for af in analyzed
+    ]
+    return {
+        "directory": directory,
+        "document_type": structured_context.get("document_type", "generic"),
+        "file_count": len(analyzed),
+        "files": files_meta,
+        "total_chars_read": structured_context.get("total_chars_read", 0),
+        "chars_limit": structured_context.get("chars_limit", MAX_DOC_CHARS_DEFAULT),
+        "truncated": structured_context.get("truncated", False),
+        "no_documentation_found": structured_context.get("no_documentation_found", False),
+        "project_type": structured_context.get("project_type", ""),
+        "source_file_count": len(structured_context.get("source_files", [])),
+    }
+
+
+async def persist_context_scan(project_id: str, scan: dict[str, Any]) -> None:
+    """将目录扫描结果写入数据库并推送快照。"""
+    try:
+        from database.db import async_session_factory
+        from database.models import Project
+        from sqlalchemy import select as _sql_select
+
+        async with async_session_factory() as db:
+            result = await db.execute(
+                _sql_select(Project).where(Project.project_id == project_id)
+            )
+            project = result.scalar_one_or_none()
+            if project:
+                project.context_scan_json = json.dumps(scan, ensure_ascii=False)
+                await db.commit()
+        await push_project_snapshot(project_id, force=True)
+    except Exception:
+        pass
 
 
 def _estimate_tokens(text: str) -> int:
@@ -614,44 +751,40 @@ def analyze_project_context_structured(directory: str) -> dict[str, Any]:
     elif "pom.xml" in key_files or "build.gradle" in key_files:
         project_type = "Java 项目"
 
-    # ── 2. 收集文档文件（递归扫描全部子目录） ──
-    doc_files: list[Path] = []
-    doc_extensions = {".md", ".txt", ".rst", ".adoc", ".docx"}
-
-    # 递归扫描整个项目目录，忽略非文档目录
-    for ext in doc_extensions:
-        for fp in dir_path.glob(f"**/*{ext}"):
-            # 跳过被忽略的目录
-            parts = fp.relative_to(dir_path).parts
-            if any(p in IGNORED_DIRS or p.startswith(".") for p in parts):
-                continue
-            doc_files.append(fp)
-
-    # 去重 + 限制数量
-    doc_files = list(set(doc_files))[:20]
+    # ── 2. 收集文档文件（优先级排序） ──
+    doc_files = _collect_doc_files(dir_path)
 
     # ── 3. 读取文档内容 ──
     file_contents: list[dict[str, Any]] = []
     total_chars = 0
-    MAX_DOC_CHARS = 8000  # 文档总字符上限
+    # 先粗判是否纯资料目录（无关键工程文件）→ 提高字符上限
+    has_engineering_keys = any(
+        k in key_files
+        for k in (
+            "requirements.txt", "pyproject.toml", "package.json",
+            "app.py", "main.py", "Cargo.toml", "go.mod",
+        )
+    )
+    max_doc_chars = MAX_DOC_CHARS_DEFAULT if has_engineering_keys else MAX_DOC_CHARS_BUSINESS
+    truncated = False
 
     for fp in doc_files:
         try:
-            # .docx 文件特殊处理
-            if fp.suffix.lower() == ".docx":
-                content = _read_docx(fp)
-            else:
-                content = fp.read_text(encoding="utf-8", errors="ignore")
-            # 跳过过短文件
+            content = _read_doc_file_content(fp)
             if len(content.strip()) < 30:
                 continue
-            # 截取
-            if total_chars + len(content) > MAX_DOC_CHARS:
-                content = content[:MAX_DOC_CHARS - total_chars] + "\n...(已截断)"
+            if total_chars + len(content) > max_doc_chars:
+                remaining = max_doc_chars - total_chars
+                if remaining <= 200:
+                    truncated = True
+                    break
+                content = content[:remaining] + "\n...(已截断)"
+                truncated = True
             rel_path = str(fp.relative_to(dir_path))
             file_contents.append({"file": rel_path, "content": content})
             total_chars += len(content)
-            if total_chars >= MAX_DOC_CHARS:
+            if total_chars >= max_doc_chars:
+                truncated = True
                 break
         except Exception:
             pass
@@ -681,6 +814,10 @@ def analyze_project_context_structured(directory: str) -> dict[str, Any]:
 
     # ── 6. 调用 LLM 生成文档摘要 ──
     summaries = _generate_doc_summaries(file_contents, project_type, source_files)
+    summaries["total_chars_read"] = total_chars
+    summaries["chars_limit"] = max_doc_chars
+    summaries["truncated"] = truncated
+    summaries["files_scanned"] = [fc["file"] for fc in file_contents]
 
     # ── 7. 文档类型识别（商业 vs 技术）──
     all_text = " ".join(fc["content"] for fc in file_contents).lower()
@@ -772,9 +909,9 @@ def _generate_doc_summaries(
     source_files: list[str],
 ) -> dict[str, Any]:
     """调用 LLM 为文档文件生成结构化摘要。"""
-    from utils import create_llm
+    from utils import create_llm_json, extract_json
 
-    llm = create_llm(temperature=0.1, max_tokens=2048, timeout=60, max_retries=1)
+    llm = create_llm_json(temperature=0.1, max_tokens=2048, timeout=60, max_retries=1)
 
     docs_text_parts: list[str] = []
     for fc in file_contents:
@@ -816,24 +953,7 @@ def _generate_doc_summaries(
     try:
         response = llm.invoke(prompt)
         raw_text: str = response.content if hasattr(response, "content") else str(response)
-        # 提取 JSON
-        import re
-        text = raw_text.strip()
-        match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", text)
-        if match:
-            text = match.group(1).strip()
-        brace_start = text.find("{")
-        if brace_start != -1:
-            depth = 0
-            for i in range(brace_start, len(text)):
-                if text[i] == "{":
-                    depth += 1
-                elif text[i] == "}":
-                    depth -= 1
-                    if depth == 0:
-                        text = text[brace_start : i + 1]
-                        break
-        result = json.loads(text)
+        result = extract_json(raw_text)
         result.setdefault("analyzed_files", [])
         result.setdefault("overall_summary", "")
         result["project_type"] = project_type
@@ -1215,6 +1335,11 @@ class WorkflowExecutor:
                     await push_log(pid, "INFO", "目录下未发现文档文件，对齐分析将仅基于需求")
                 else:
                     await push_log(pid, "SUCCESS", f"文档分析完成：{file_count} 个文件")
+                scan_meta = build_context_scan_meta(
+                    structured_context, directory=directory
+                )
+                state["context_scan"] = scan_meta
+                await persist_context_scan(pid, scan_meta)
             except Exception as exc:
                 await push_log(pid, "WARN", f"上下文分析异常: {exc}，将跳过")
                 # ★ 修复：确保 structured_context 非空，保留基本信息

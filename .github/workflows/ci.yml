@@ -34,9 +34,11 @@ jobs:
         run: pytest tests/ -m "not integration" -v --tb=short
         env:
           DEEPSEEK_API_KEY: test-key-for-ci
+          DEEPSEEK_MODEL: deepseek-v4-pro
 
       - name: Integration tests
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         run: pytest tests/ -m integration -v --tb=short
         env:
           DEEPSEEK_API_KEY: test-key-for-ci
+          DEEPSEEK_MODEL: deepseek-v4-pro

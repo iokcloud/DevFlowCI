@@ -85,6 +85,9 @@ async def fetch_project_snapshot(project_id: str) -> dict[str, Any] | None:
             "final_report": project.final_report,
             "delivery_path": project.delivery_path,
             "test_report_path": project.test_report_path,
+            "context_scan": json.loads(project.context_scan_json)
+            if project.context_scan_json
+            else None,
             "created_at": project.created_at.isoformat(),
             "updated_at": project.updated_at.isoformat(),
         }

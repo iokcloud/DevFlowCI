@@ -45,6 +45,7 @@ jobs:
         run: |
           cp .env.example .env
           sed -i "s/your_key_here/$DEEPSEEK_API_KEY/" .env
+          echo "DEEPSEEK_MODEL=deepseek-v4-pro" >> .env
           echo "BUSINESS_MVP_MAX_MODULES=2" >> .env
 
       - name: Start server
@@ -56,7 +57,7 @@ jobs:
           python -m uvicorn main:app --host 127.0.0.1 --port 8000 --log-level warning &
           for i in $(seq 1 30); do
             if curl -sf http://127.0.0.1:8000/api/health >/dev/null; then
-              echo "Server ready (BUSINESS_MVP_MAX_MODULES=$BUSINESS_MVP_MAX_MODULES)"
+              echo "Server ready (multi, v4-pro)"
               exit 0
             fi
             sleep 2

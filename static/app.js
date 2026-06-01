@@ -42,6 +42,7 @@ const els = {
     currentStatusBadge: $("#current-status-badge"),
     progressBar: $("#progress-bar"),
     progressText: $("#progress-text"),
+    contextScanBar: $("#context-scan-bar"),
     moduleStatsBar: $("#module-stats-bar"),
     recentErrorsSection: $("#recent-errors-section"),
     recentErrorsContent: $("#recent-errors-content"),
@@ -64,6 +65,7 @@ document.addEventListener("DOMContentLoaded", () => {
     setupDirectorySelector();
     setupDirectoryBrowser();
     setupNewProjectButton();
+    setupHistoryToolbar();
     // 确保页面加载时侧边栏处于展开状态
     expandSidebar();
     checkHealth();
@@ -241,7 +243,8 @@ function setupSubmit() {
 
         try {
             const mode = document.getElementById("plan-mode-select")?.value || "auto";
-            const body = { requirement, directory: directory || null, mode };
+            const forceNew = document.getElementById("force-new-checkbox")?.checked || false;
+            const body = { requirement, directory: directory || null, mode, force_new: forceNew };
             const data = await requestQueue.fetch(API_BASE + "/api/projects", {
                 method: "POST",
                 body: JSON.stringify(body),
@@ -290,6 +293,10 @@ function startWatching(projectId, keepPanelVisible = false) {
     els.modulesGrid.innerHTML = "";
     els.logContainer.innerHTML = "";
     els.currentProjectTitle.textContent = "项目: " + projectId;
+    if (els.contextScanBar) {
+        els.contextScanBar.classList.add("hidden");
+        els.contextScanBar.innerHTML = "";
+    }
     els.currentStatusBadge.textContent = "已创建";
     els.currentStatusBadge.className = "badge created";
     els.progressBar.style.width = "5%";
@@ -405,11 +412,62 @@ function applyProjectData(project, projectId) {
     initLiveModules(project.modules || []);
     project.modules = getLiveModulesList();
     renderStatus(project);
+    renderContextScanBar(project.context_scan);
     renderModuleStatsBar(project);
     renderRecentErrorLogs(project);
     if (projectId) {
         loadErrorStats(projectId);
     }
+}
+
+function renderContextScanBar(scan) {
+    const bar = els.contextScanBar;
+    if (!bar) return;
+    if (!scan || !scan.file_count) {
+        bar.classList.add("hidden");
+        bar.innerHTML = "";
+        return;
+    }
+    const typeLabels = {
+        business: "商业资料",
+        technical: "技术文档",
+        generic: "通用文档",
+    };
+    const typeLabel = typeLabels[scan.document_type] || scan.document_type || "文档";
+    const truncHint = scan.truncated
+        ? ` · 已截断（上限 ${scan.chars_limit || "?"} 字）`
+        : "";
+    const filesPreview = (scan.files || [])
+        .slice(0, 4)
+        .map((f) => f.file)
+        .join("、");
+    const more = (scan.files || []).length > 4
+        ? ` 等 ${scan.file_count} 个文件`
+        : "";
+    bar.classList.remove("hidden");
+    bar.innerHTML = `
+        <span class="context-scan-icon">📄</span>
+        <span class="context-scan-text">
+            已扫描 <strong>${scan.file_count}</strong> 个文件 · 判定为 <strong>${typeLabel}</strong>
+            · 约 ${scan.total_chars_read || 0} 字${truncHint}
+            ${filesPreview ? `<br><span class="context-scan-files">${escapeHtml(filesPreview)}${escapeHtml(more)}</span>` : ""}
+        </span>`;
+}
+
+function buildContextScanHtml(scan) {
+    if (!scan || !scan.file_count) return "";
+    const rows = (scan.files || [])
+        .map(
+            (f) =>
+                `<li><code>${escapeHtml(f.file)}</code>${f.summary ? ` — ${escapeHtml(f.summary)}` : ""}</li>`
+        )
+        .join("");
+    return `
+        <details class="biz-context-scan" open>
+            <summary>📁 已依据的目录资料（${scan.file_count} 个文件）</summary>
+            <ul class="context-scan-file-list">${rows}</ul>
+            ${scan.truncated ? `<p class="biz-tech-preview-note">⚠ 部分内容因上限未全部读入，可将核心报告放在目录顶层或合并为一份 .md</p>` : ""}
+        </details>`;
 }
 
 function handleProjectSnapshot(snapshot) {
@@ -938,23 +996,106 @@ function renderDelivery(project) {
 }
 
 // ── 历史列表 ────────────────────────────────────────
+let historyProjectsCache = [];
+
+const HISTORY_ACTIVE = new Set([
+    "created", "aligning", "aligned", "planning", "plan_ready",
+    "executing", "integrating", "reviewing",
+]);
+const HISTORY_FAILED = new Set(["failed", "needs_review", "cancelled"]);
+
+function setupHistoryToolbar() {
+    const filter = document.getElementById("history-filter");
+    const cleanupBtn = document.getElementById("btn-history-cleanup");
+    if (filter) {
+        filter.addEventListener("change", () => renderHistory(historyProjectsCache));
+    }
+    if (cleanupBtn) {
+        cleanupBtn.addEventListener("click", () => cleanupHistoryBatch());
+    }
+}
+
+function historyMatchesFilter(p, filter) {
+    if (filter === "all") return true;
+    if (filter === "active") return HISTORY_ACTIVE.has(p.status);
+    if (filter === "completed") return p.status === "completed";
+    if (filter === "stale") return !!p.is_stale;
+    if (filter === "failed") return HISTORY_FAILED.has(p.status);
+    return true;
+}
+
+async function deleteHistoryProject(projectId, ev) {
+    if (ev) {
+        ev.stopPropagation();
+        ev.preventDefault();
+    }
+    if (!confirm(`确定删除项目 ${projectId}？此操作不可恢复。`)) return;
+    try {
+        await requestQueue.fetch(
+            API_BASE + "/api/projects/" + projectId + "/delete?delete_deliveries=false",
+            { method: "POST", priority: RequestPriority.CRITICAL }
+        );
+        if (currentProjectId === projectId) resetToInitialState();
+        showToast("已删除 " + projectId, "success");
+        loadHistory();
+    } catch (e) {
+        showToast("删除失败: " + e.message, "error");
+    }
+}
+
+async function cleanupHistoryBatch() {
+    const msg =
+        "批量清理：已完成、已取消、失败/需审查，以及停滞超过 10 分钟的项目。\n\n确定继续？";
+    if (!confirm(msg)) return;
+    try {
+        const data = await requestQueue.fetch(API_BASE + "/api/projects/cleanup", {
+            method: "POST",
+            body: JSON.stringify({
+                statuses: ["completed", "cancelled", "failed", "needs_review"],
+                include_stale: true,
+                stale_minutes: 10,
+                delete_deliveries: false,
+            }),
+            priority: RequestPriority.CRITICAL,
+        });
+        showToast(`已清理 ${data.deleted_count || 0} 个项目`, "success");
+        if (currentProjectId && (data.deleted_ids || []).includes(currentProjectId)) {
+            resetToInitialState();
+        }
+        loadHistory();
+    } catch (e) {
+        showToast("清理失败: " + e.message, "error");
+    }
+}
+
+function bindHistoryItemEvents() {
+    els.historyList.querySelectorAll(".history-item").forEach((el) => {
+        el.addEventListener("click", (e) => {
+            if (e.target.closest(".history-delete-btn")) return;
+            const id = el.dataset.id;
+            currentProjectId = id;
+            startWatching(id);
+        });
+    });
+    els.historyList.querySelectorAll(".history-delete-btn").forEach((btn) => {
+        btn.addEventListener("click", (e) => deleteHistoryProject(btn.dataset.id, e));
+    });
+}
+
 function prependHistoryItem(projectId, requirement, directory) {
-    // 先移除已存在的同 ID 条目（避免重复）
     const existing = els.historyList.querySelector(`.history-item[data-id="${projectId}"]`);
     if (existing) existing.remove();
-
-    // ★ 修复：如果选了目录，移除同一目录的其他历史条目（避免同一目录出现多次）
-    if (directory) {
-        const dupDirs = els.historyList.querySelectorAll(`.history-item[data-dir="${CSS.escape(directory)}"]`);
-        dupDirs.forEach(el => el.remove());
-    }
 
     const item = document.createElement("div");
     item.className = "history-item";
     item.dataset.id = projectId;
+    item.dataset.status = "created";
     if (directory) item.dataset.dir = directory;
     item.innerHTML = `
-        <div class="req">${escapeHtml(requirement.substring(0, 100))}${requirement.length > 100 ? "..." : ""}</div>
+        <div class="history-item-row">
+            <div class="req">${escapeHtml(requirement.substring(0, 100))}${requirement.length > 100 ? "..." : ""}</div>
+            <button type="button" class="history-delete-btn" data-id="${projectId}" title="删除">×</button>
+        </div>
         <div class="meta">
             <span class="history-id">${projectId.replace("proj-", "")}</span>
             <span class="history-badge badge created">${statusLabel("created")}</span>
@@ -962,78 +1103,67 @@ function prependHistoryItem(projectId, requirement, directory) {
         </div>
         ${directory ? `<div class="dir">📂 ${escapeHtml(directory)}</div>` : ""}`;
 
-    item.addEventListener("click", () => {
-        currentProjectId = projectId;
-        startWatching(projectId);
-    });
-
-    // 插入到列表顶部
     els.historyList.insertBefore(item, els.historyList.firstChild);
+    bindHistoryItemEvents();
 
-    // 移除空状态提示
     const empty = els.historyList.querySelector(".empty-state");
     if (empty) empty.remove();
 }
 
 async function loadHistory() {
     try {
-        const projects = await requestQueue.fetch(API_BASE + "/api/projects/history?limit=20", {
+        const projects = await requestQueue.fetch(API_BASE + "/api/projects/history?limit=50", {
             priority: RequestPriority.LOW,
         });
-        renderHistory(projects);
+        historyProjectsCache = projects || [];
+        renderHistory(historyProjectsCache);
     } catch (e) {
         // ignore
     }
 }
 
 function renderHistory(projects) {
+    const filter = document.getElementById("history-filter")?.value || "all";
     if (!projects || projects.length === 0) {
         els.historyList.innerHTML = '<div class="empty-state">暂无历史项目</div>';
         return;
     }
 
-    // 去重：同一 project_id 只保留一条
     const seenIds = new Set();
-    const unique = projects.filter(p => {
+    const unique = projects.filter((p) => {
         if (seenIds.has(p.project_id)) return false;
         seenIds.add(p.project_id);
-        return true;
+        return historyMatchesFilter(p, filter);
     });
 
-    // ★ 去重：同一目录只保留最新的一条
-    const seenDirs = new Set();
-    const deduped = [];
-    for (const p of unique) {
-        if (p.directory) {
-            if (seenDirs.has(p.directory)) continue;
-            seenDirs.add(p.directory);
-        }
-        deduped.push(p);
+    if (unique.length === 0) {
+        els.historyList.innerHTML = '<div class="empty-state">当前筛选下无项目</div>';
+        return;
     }
 
-    els.historyList.innerHTML = deduped
-        .map(
-            (p) => `
-        <div class="history-item" data-id="${p.project_id}"${p.directory ? ` data-dir="${escapeHtml(p.directory)}"` : ""}>
-            <div class="req">${escapeHtml(p.requirement)}</div>
+    els.historyList.innerHTML = unique
+        .map((p) => {
+            const staleBadge = p.is_stale
+                ? '<span class="history-stale-badge">停滞</span>'
+                : "";
+            return `
+        <div class="history-item${p.is_stale ? " stale" : ""}" data-id="${p.project_id}" data-status="${p.status}"${p.directory ? ` data-dir="${escapeHtml(p.directory)}"` : ""}>
+            <div class="history-item-row">
+                <div class="req">${escapeHtml(p.requirement)}</div>
+                <button type="button" class="history-delete-btn" data-id="${p.project_id}" title="删除">×</button>
+            </div>
             <div class="meta">
                 <span class="history-id">${p.project_id.replace("proj-", "")}</span>
                 <span class="history-badge badge ${p.status}">${statusLabel(p.status)}</span>
+                ${staleBadge}
                 ${p.created_at ? `<span class="history-time">${timeAgo(p.created_at)}</span>` : ""}
             </div>
             ${p.directory ? `<div class="dir">📂 ${escapeHtml(p.directory)}</div>` : ""}
-        </div>`
-        )
+        </div>`;
+        })
         .join("");
 
-    // 点击历史项查看
-    els.historyList.querySelectorAll(".history-item").forEach((el) => {
-        el.addEventListener("click", () => {
-            const id = el.dataset.id;
-            currentProjectId = id;
-            startWatching(id);
-        });
-    });
+    bindHistoryItemEvents();
 }
 
 // ── 测试结果辅助 ────────────────────────────────────
@@ -1208,7 +1338,7 @@ async function checkHealth() {
             priority: RequestPriority.LOW,
         });
         els.health.textContent =
-            "● 在线 (案例: " + (data.cases_count || 0) + ")";
+            "● 在线 v" + (data.api_version || "?") + " (案例: " + (data.cases_count || 0) + ")";
         els.health.className = "health ok";
     } catch (e) {
         els.health.textContent = "● 离线";
@@ -1231,16 +1361,21 @@ function setupDirectorySelector() {
 }
 
 function updateDirectoryDisplay() {
+    const forceWrap = document.getElementById("force-new-wrap");
     if (selectedDirectory) {
         els.dirSelectorText.textContent = selectedDirectory;
         els.dirSelectorText.classList.add("has-path");
         els.dirSelector.classList.add("has-selection");
         els.btnClearDir.classList.remove("hidden");
+        if (forceWrap) forceWrap.classList.remove("hidden");
     } else {
         els.dirSelectorText.textContent = "点击选择项目目录...";
         els.dirSelectorText.classList.remove("has-path");
         els.dirSelector.classList.remove("has-selection");
         els.btnClearDir.classList.add("hidden");
+        if (forceWrap) forceWrap.classList.add("hidden");
+        const cb = document.getElementById("force-new-checkbox");
+        if (cb) cb.checked = false;
     }
 }
 
@@ -1848,6 +1983,7 @@ function showBusinessPlan(project, alignment) {
     const recs = alignment.recommendations || "";
 
     let html = `<div class="biz-plan">
+        ${buildContextScanHtml(project.context_scan)}
         <div class="biz-exec-summary"><h3>📋 执行摘要</h3><p>${escapeHtml(exec)}</p></div>
         <div id="biz-tech-preview" class="biz-tech-preview biz-tech-preview-loading">
             <h4>💻 确认后将生成的技术 MVP</h4>

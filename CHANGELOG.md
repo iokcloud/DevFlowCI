@@ -4,6 +4,19 @@
 
 ## [Unreleased]
 
+## [0.4.9] - 2026-06-01
+
+### 新增
+- 历史项目：单条删除 + 批量清理（含停滞项目）
+- 目录扫描摘要 Web 展示；扩展 `.json`/`.yaml`/`.csv` 资料扫描
+- 选目录「强制新建」；`/api/health` 返回 `api_version`
+
+### 变更
+- 全 Pro 对齐：autopilot 交付模板、文档摘要、批量错误分析统一 `create_llm_*`
+- GitHub CI（nightly / multi / pytest）显式 `DEEPSEEK_MODEL=deepseek-v4-pro`
+
+[0.4.9]: https://github.com/iokcloud/DevFlowCI/releases/tag/v0.4.9
+
 ## [0.4.8] - 2026-06-01
 
 ### 新增

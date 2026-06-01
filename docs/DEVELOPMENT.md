@@ -1,6 +1,6 @@
 # 本地开发指南
 
-> 版本：v0.4.7 | 最后更新：2026-06-01
+> 版本：v0.4.9 | 最后更新：2026-06-01
 
 ## 环境要求
 
@@ -23,31 +23,32 @@ pip install -r requirements.txt
 # 3. 环境变量
 cp .env.example .env
 # 编辑 .env，填入 DEEPSEEK_API_KEY
-# 默认 DEEPSEEK_MODEL=deepseek-v4-flash（CI/日常）；重要交付改为 deepseek-v4-pro
+# 默认 DEEPSEEK_MODEL=deepseek-v4-pro（全 Pro + 分 Agent）
 ```
 
 ### LLM 模型
 
 | 变量 | 推荐值 | 说明 |
 |------|--------|------|
-| `DEEPSEEK_MODEL` | `deepseek-v4-flash`（CI/日常） | 重要交付改 `deepseek-v4-pro` |
-| `DEEPSEEK_REASONING_EFFORT` | `high` | 规划类 Agent（Pro 时） |
+| `DEEPSEEK_MODEL` | `deepseek-v4-pro` | 仓库与 CI 默认；全链路 Pro |
+| `DEEPSEEK_REASONING_EFFORT` | `high` | 规划 / 商业 / 对齐类 Agent |
 | `DEEPSEEK_BASE_URL` | `https://api.deepseek.com/v1` | DevFlow 服务端用 OpenAI 兼容端点 |
 
-**Agent 调用策略（f9653e7 起，代码内已配置）**：
-- 对齐 / PM / 商业规划 → `thinking=enabled` + `json_object`
-- 分析 / 编码 / 集成 / 修复 → `thinking=disabled` + `json_object`
-- 审查（PASS/FAIL 文本）→ `thinking=disabled`
+**Agent 调用策略**：
+- 对齐 / PM / 商业规划 → `create_llm_reasoning()`（thinking + json_object）
+- 分析 / 编码 / 集成 / 修复 / 文档摘要 → `create_llm_json()`（thinking off + json_object）
+- 审查（PASS/FAIL 文本）→ `create_llm_text()`（thinking off）
+
+**省成本可选**：`.env` 中设 `DEEPSEEK_MODEL=deepseek-v4-flash`（不推荐生产默认）。
 
 **Web 实时性**：SSE `project_snapshot` 推送；HTTP 轮询 10s 兜底。
 
-**Multi E2E 实测（cap=2，本地）**：
+**Multi E2E 实测（cap=2，本地，v4-pro + 分 Agent）**：
 
-| 模型 | 耗时 | 结果 |
+| 运行 | 耗时 | 结果 |
 |------|------|------|
-| v4-flash | ~2m | 2/2 passed |
-| v4-pro（分 Agent，2 次） | ~2.5–3.5m | 2/2 passed |
-| v4-pro（未分 Agent） | ~32m | 0/2 blocked |
+| Pro #1–#3 | ~2–3.5m | 2/2 passed |
+| Pro（未分 Agent，历史） | ~32m | 0/2 blocked |
 
 **双 API 说明**：DevFlow 使用 `/v1` + `json_object`。Claude Code 等外部工具可单独配置 `ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic`，无需改 DevFlow 服务端。
 

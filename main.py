@@ -186,6 +186,84 @@ class RollbackRequest(BaseModel):
     version: str = Field(default="", description="要回滚到的版本号，如 'v1'")
 
 
+class CleanupProjectsRequest(BaseModel):
+    """批量清理历史项目。"""
+    statuses: list[str] = Field(
+        default=["completed", "cancelled", "failed", "needs_review"],
+        description="要删除的项目状态列表",
+    )
+    include_stale: bool = Field(
+        default=True,
+        description="是否包含停滞的非终态项目（planning/created/aligning 等）",
+    )
+    stale_minutes: int = Field(default=10, ge=1, le=1440)
+    delete_deliveries: bool = Field(
+        default=False,
+        description="是否同时删除 deliveries 目录下的交付物",
+    )
+
+
+_TERMINAL_PROJECT_STATUSES = {
+    ProjectStatus.COMPLETED,
+    ProjectStatus.FAILED,
+    ProjectStatus.NEEDS_REVIEW,
+    ProjectStatus.CANCELLED,
+}
+
+_ACTIVE_PROJECT_STATUSES = {
+    ProjectStatus.CREATED,
+    ProjectStatus.ALIGNING,
+    ProjectStatus.ALIGNED,
+    ProjectStatus.PLANNING,
+    ProjectStatus.PLAN_READY,
+    ProjectStatus.EXECUTING,
+    ProjectStatus.INTEGRATING,
+    ProjectStatus.REVIEWING,
+}
+
+
+async def _delete_project_record(
+    project_id: str,
+    *,
+    delete_deliveries: bool = False,
+) -> bool:
+    """删除单个项目记录及可选交付物。返回是否删除成功。"""
+    task = _running_tasks.pop(project_id, None)
+    if task and not task.done():
+        task.cancel()
+
+    if delete_deliveries:
+        zip_path = DELIVERIES_DIR / f"{project_id}.zip"
+        if zip_path.exists():
+            try:
+                zip_path.unlink()
+            except OSError:
+                pass
+        proj_dir = DELIVERIES_DIR / project_id
+        if proj_dir.is_dir():
+            import shutil
+            try:
+                shutil.rmtree(proj_dir, ignore_errors=True)
+            except OSError:
+                pass
+
+    from database.db import async_session_factory
+    from sqlalchemy import select
+
+    async with async_session_factory() as db:
+        result = await db.execute(
+            select(Project).where(Project.project_id == project_id)
+        )
+        project = result.scalar_one_or_none()
+        if not project:
+            return False
+        await db.delete(project)
+        await db.commit()
+
+    remove_log_queue(project_id)
+    return True
+
+
 # ── API 路由 ──────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
@@ -341,9 +419,125 @@ async def get_history(limit: int = 20) -> list[dict[str, Any]]:
                 "directory": p.directory,
                 "blocked_count": p.blocked_count,
                 "created_at": p.created_at.isoformat(),
+                "updated_at": p.updated_at.isoformat(),
+                "is_stale": _is_stale_project(p),
             }
             for p in projects
         ]
+
+
+def _is_stale_project(project: Project) -> bool:
+    """非终态且长时间无更新视为停滞。"""
+    if project.status in _TERMINAL_PROJECT_STATUSES:
+        return False
+    if not project.updated_at:
+        return False
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=10)
+    updated = project.updated_at
+    if updated.tzinfo is None:
+        updated = updated.replace(tzinfo=timezone.utc)
+    return updated < cutoff
+
+
+async def _delete_project_impl(
+    project_id: str,
+    *,
+    delete_deliveries: bool = False,
+) -> dict[str, Any]:
+    """删除历史项目（运行中项目会先终止）。"""
+    from database.db import async_session_factory
+    from sqlalchemy import select
+
+    async with async_session_factory() as db:
+        result = await db.execute(
+            select(Project).where(Project.project_id == project_id)
+        )
+        project = result.scalar_one_or_none()
+        if not project:
+            raise HTTPException(404, "项目不存在")
+
+        if project.status in _ACTIVE_PROJECT_STATUSES:
+            task = _running_tasks.get(project_id)
+            if task and not task.done():
+                task.cancel()
+                _running_tasks.pop(project_id, None)
+            project.status = ProjectStatus.CANCELLED
+            await db.commit()
+
+    deleted = await _delete_project_record(
+        project_id, delete_deliveries=delete_deliveries
+    )
+    if not deleted:
+        raise HTTPException(404, "项目不存在")
+
+    return {"deleted": True, "project_id": project_id}
+
+
+@app.delete("/api/projects/{project_id}")
+async def delete_project(
+    project_id: str,
+    delete_deliveries: bool = False,
+) -> dict[str, Any]:
+    """DELETE /api/projects/{project_id}?delete_deliveries=true"""
+    return await _delete_project_impl(
+        project_id, delete_deliveries=delete_deliveries
+    )
+
+
+@app.post("/api/projects/{project_id}/delete")
+async def delete_project_post(
+    project_id: str,
+    delete_deliveries: bool = False,
+) -> dict[str, Any]:
+    """POST /api/projects/{project_id}/delete?delete_deliveries=true（与 DELETE 等效）"""
+    return await _delete_project_impl(
+        project_id, delete_deliveries=delete_deliveries
+    )
+
+
+@app.post("/api/projects/cleanup")
+async def cleanup_projects(body: CleanupProjectsRequest) -> dict[str, Any]:
+    """批量清理历史项目。
+
+    POST /api/projects/cleanup
+    """
+    from database.db import async_session_factory
+    from sqlalchemy import select
+
+    allowed = {s.value for s in ProjectStatus}
+    target_statuses = {s for s in body.statuses if s in allowed}
+    if not target_statuses and not body.include_stale:
+        raise HTTPException(400, "请指定要清理的状态或启用 include_stale")
+
+    stale_cutoff = datetime.now(timezone.utc) - timedelta(minutes=body.stale_minutes)
+    deleted: list[str] = []
+
+    async with async_session_factory() as db:
+        result = await db.execute(select(Project))
+        projects = list(result.scalars().all())
+
+    for project in projects:
+        if project.status in _ACTIVE_PROJECT_STATUSES:
+            if _running_tasks.get(project.project_id):
+                continue
+        should_delete = project.status.value in target_statuses
+        if not should_delete and body.include_stale:
+            updated = project.updated_at
+            if updated and updated.tzinfo is None:
+                updated = updated.replace(tzinfo=timezone.utc)
+            if (
+                project.status not in _TERMINAL_PROJECT_STATUSES
+                and updated
+                and updated < stale_cutoff
+            ):
+                should_delete = True
+        if should_delete:
+            if await _delete_project_record(
+                project.project_id, delete_deliveries=body.delete_deliveries
+            ):
+                deleted.append(project.project_id)
+
+    return {"deleted_count": len(deleted), "deleted_ids": deleted}
 
 
 @app.get("/api/projects/{project_id}")
@@ -694,7 +888,11 @@ async def download_project(project_id: str) -> FileResponse:
 @app.get("/api/health")
 async def health() -> dict[str, str]:
     """健康检查。"""
-    return {"status": "ok", "cases_count": str(_case_store.count)}
+    return {
+        "status": "ok",
+        "cases_count": str(_case_store.count),
+        "api_version": "0.4.9",
+    }
 
 
 # ── 文件系统浏览 API ────────────────────────────────────
@@ -937,61 +1135,51 @@ async def analyze_errors_endpoint(project_id: str | None = None) -> dict[str, An
 只输出 JSON，不要其他文字。"""
 
         try:
-            from langchain_openai import ChatOpenAI
-            llm = ChatOpenAI(
-                model=DEEPSEEK_MODEL,
-                api_key=DEEPSEEK_API_KEY,
-                base_url=DEEPSEEK_BASE_URL,
-                temperature=0.2,
-                max_tokens=1024,
-                timeout=60,
-                max_retries=1,
-            )
+            from utils import create_llm_json, extract_json
+
+            llm = create_llm_json(temperature=0.2, max_tokens=1024, timeout=60, max_retries=1)
             response = await llm.ainvoke([{"role": "user", "content": analysis_prompt}])
             raw = response.content if hasattr(response, "content") else str(response)
-            import re as _re
-            json_match = _re.search(r"\{[\s\S]*\}", raw)
-            if json_match:
-                analysis = json.loads(json_match.group())
-                pattern = analysis.get("pattern", "未识别")
-                suggestions = analysis.get("suggestions", [])
-                can_fix = analysis.get("can_auto_fix", False)
+            analysis = extract_json(raw)
+            pattern = analysis.get("pattern", "未识别")
+            suggestions = analysis.get("suggestions", [])
+            can_fix = analysis.get("can_auto_fix", False)
 
-                fix_suggestions.append(f"[{mod_name}] {pattern}")
+            fix_suggestions.append(f"[{mod_name}] {pattern}")
 
-                if can_fix and suggestions:
-                    try:
-                        module_output = {
-                            "module_name": mod_name,
-                            "module_type": "backend",
-                            "spec": {"summary": pattern},
-                            "code": "",
-                            "test_code": "",
-                            "error_text": error_messages,
-                            "review_issues": suggestions,
-                        }
-                        repair_result = await _repair_agent.repair(module_output, [])
-                        if repair_result.can_fix:
-                            for e in mod_errs:
-                                await resolve_error(e["trace_id"], resolved_by="batch_analyze",
-                                                    fix_detail=repair_result.fix_summary)
-                            fixes_applied += len(mod_errs)
-                            fix_suggestions.append(
-                                f"  ✅ 已自动修复: {repair_result.fix_summary}"
+            if can_fix and suggestions:
+                try:
+                    module_output = {
+                        "module_name": mod_name,
+                        "module_type": "backend",
+                        "spec": {"summary": pattern},
+                        "code": "",
+                        "test_code": "",
+                        "error_text": error_messages,
+                        "review_issues": suggestions,
+                    }
+                    repair_result = await _repair_agent.repair(module_output, [])
+                    if repair_result.can_fix:
+                        for e in mod_errs:
+                            await resolve_error(e["trace_id"], resolved_by="batch_analyze",
+                                                fix_detail=repair_result.fix_summary)
+                        fixes_applied += len(mod_errs)
+                        fix_suggestions.append(
+                            f"  ✅ 已自动修复: {repair_result.fix_summary}"
+                        )
+                        try:
+                            from workflow.auto_fix import record_fix_case
+                            record_fix_case(
+                                error_text=error_messages[:200],
+                                module_name=mod_name,
+                                module_type="backend",
+                                fix_summary=repair_result.fix_summary,
+                                strategy_used="batch_analyze",
                             )
-                            try:
-                                from workflow.auto_fix import record_fix_case
-                                record_fix_case(
-                                    error_text=error_messages[:200],
-                                    module_name=mod_name,
-                                    module_type="backend",
-                                    fix_summary=repair_result.fix_summary,
-                                    strategy_used="batch_analyze",
-                                )
-                            except Exception:
-                                pass
-                    except Exception as fix_exc:
-                        fix_suggestions.append(f"  ⚠️ 自动修复异常: {fix_exc}")
+                        except Exception:
+                            pass
+                except Exception as fix_exc:
+                    fix_suggestions.append(f"  ⚠️ 自动修复异常: {fix_exc}")
         except Exception as exc:
             fix_suggestions.append(f"[{mod_name}] 分析失败: {exc}")
 
@@ -1273,6 +1461,10 @@ async def _save_state(project_id: str, final_state: WorkflowState) -> None:
         project.delivery_path = final_state.get("delivery_path", "")
         project.test_report_path = final_state.get("test_report_path", "")
         project.blocked_count = len(final_state.get("blocked_modules", []))
+        if final_state.get("context_scan"):
+            project.context_scan_json = json.dumps(
+                final_state["context_scan"], ensure_ascii=False
+            )
 
         review = final_state.get("global_review", {})
         if review:

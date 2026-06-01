@@ -10,7 +10,7 @@
 配置（环境变量）:
     LLM_API_KEY: DeepSeek API Key（必需，否则仅使用本地案例库）
     LLM_API_BASE: 默认 https://api.deepseek.com/v1
-    LLM_MODEL: 默认 deepseek-chat
+    LLM_MODEL / DEEPSEEK_MODEL: 默认 deepseek-v4-pro
     SELF_HEALING_ENABLED: 默认 true
 
 使用方式:
@@ -96,7 +96,11 @@ class SelfHealingEngine:
         self._enabled = os.getenv("SELF_HEALING_ENABLED", "true").lower() == "true"
         self._api_key = os.getenv("LLM_API_KEY", "")
         self._api_base = os.getenv("LLM_API_BASE", "https://api.deepseek.com/v1")
-        self._model = os.getenv("LLM_MODEL", "deepseek-chat")
+        self._model = (
+            os.getenv("LLM_MODEL")
+            or os.getenv("DEEPSEEK_MODEL")
+            or "deepseek-v4-pro"
+        )
         self._fixes_file = Path(__file__).parent / "fixes.json"
         self._fixes_file.parent.mkdir(parents=True, exist_ok=True)
 

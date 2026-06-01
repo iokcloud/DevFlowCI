@@ -68,6 +68,13 @@ async def init_db() -> None:
         except Exception:
             pass  # 列已存在（SQLite 不支持 IF NOT EXISTS）
 
+        try:
+            await conn.execute(
+                text("ALTER TABLE projects ADD COLUMN context_scan_json TEXT")
+            )
+        except Exception:
+            pass
+
     # ── FixSession 表迁移 (v0.6.0 新增：闭环修复记录) ──
     try:
         from database.models import Base as _Base

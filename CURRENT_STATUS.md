@@ -1,10 +1,10 @@
 # 项目当前状态
 
-> 最后更新：2026-06-01（会话: 20260601-16）
-> 更新原因：v0.4.8 发布 — 分 Agent + SSE 快照 + 全 Pro 默认
+> 最后更新：2026-06-01（v0.4.9 发布）
+> 更新原因：全 Pro 对齐 + 历史删除 + 资料目录扫描增强
 
 ## 基本信息
-- 当前阶段：**v0.4.8 已发布**
+- 当前阶段：**v0.4.9 已发布**
 - 最后完成的功能：
   - ✅ V4 分 Agent LLM 工厂（reasoning / json / text）
   - ✅ SSE `project_snapshot` + Web 10s 轮询兜底
@@ -29,8 +29,8 @@
 | Web UI | 93% | SSE snapshot + 轮询兜底 | |
 
 ## 生产模型策略
-- 仓库默认 **`deepseek-v4-pro`**（全 Pro + 分 Agent + `REASONING_EFFORT=high`）
-- 省成本可选：`DEEPSEEK_MODEL=deepseek-v4-flash`
+- 仓库与 CI 默认 **`deepseek-v4-pro`**（全 Pro + 分 Agent + `REASONING_EFFORT=high`）
+- 交付物 autopilot 自愈模块同步默认 v4-pro
 
 ## 下一步计划
 1. [ ] 确认 weekly Pro E2E（full + multi）CI 通过
