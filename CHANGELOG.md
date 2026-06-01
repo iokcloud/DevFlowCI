@@ -4,6 +4,18 @@
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-06-01
+
+### 新增
+- `scripts/analyze_blocked.py` — 分析 blocked 模块失败原因
+- `.github/workflows/learnings-cluster-weekly.yml` — 每周 LEARNINGS 聚类
+- `tests/test_business_routing.py` — is_prime 商业 MVP 短路径
+
+### 修复
+- 商业确认含 `is_prime` 时强制单模块技术需求（对齐 test_flow 冒烟）
+
+[0.4.3]: https://github.com/iokcloud/DevFlowCI/releases/tag/v0.4.3
+
 ## [0.4.2] - 2026-06-01
 
 ### 新增
