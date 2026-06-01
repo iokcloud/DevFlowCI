@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from utils import create_llm, extract_json
+from utils import create_llm_reasoning, extract_json
 
 BUSINESS_PLANNER_PROMPT = """你是一位资深商业分析师与战略顾问。你的任务是基于提供的市场调研文档生成一份结构化的商业项目计划建议书。
 
@@ -67,7 +67,7 @@ class BusinessPlannerAgent:
     """商业计划分析师。基于商业文档生成项目计划建议书。"""
 
     def __init__(self) -> None:
-        self._llm = create_llm()
+        self._llm = create_llm_reasoning()
 
     def _build_prompt(self, structured_context: dict[str, Any]) -> str:
         parts: list[str] = [BUSINESS_PLANNER_PROMPT]

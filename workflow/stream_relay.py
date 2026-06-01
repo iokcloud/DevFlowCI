@@ -119,6 +119,8 @@ async def stream_deepseek_call(
     max_tokens: int = LLM_MAX_TOKENS,
     timeout: int = LLM_TIMEOUT_SECONDS,
     log_callback=None,
+    thinking: str | None = "disabled",
+    json_output: bool = False,
 ) -> str:
     """流式调用 DeepSeek API，逐 token 推送到 SSE，返回完整响应文本。
 
@@ -163,13 +165,23 @@ async def stream_deepseek_call(
             "Accept": "text/event-stream",
         }
 
-        payload = {
+        payload: dict[str, Any] = {
             "model": model,
             "messages": messages,
-            "temperature": temperature,
             "max_tokens": max_tokens,
             "stream": True,
         }
+        if thinking:
+            payload["extra_body"] = {"thinking": {"type": thinking}}
+            if thinking == "enabled":
+                from config import DEEPSEEK_REASONING_EFFORT
+                payload["reasoning_effort"] = DEEPSEEK_REASONING_EFFORT
+            else:
+                payload["temperature"] = temperature
+        else:
+            payload["temperature"] = temperature
+        if json_output:
+            payload["response_format"] = {"type": "json_object"}
 
         full_response_parts: list[str] = []
 
@@ -249,6 +261,8 @@ async def stream_deepseek_call(
                 max_tokens=max_tokens,
                 timeout=timeout,
                 max_retries=2,
+                thinking=thinking if thinking in ("enabled", "disabled") else "disabled",
+                json_output=json_output,
             )
             response = await llm.ainvoke(messages)
             full_response = response.content if hasattr(response, "content") else str(response)

@@ -19,7 +19,7 @@ from config import (
     HUMAN_FIXES_FILE,
 )
 from memory.case_store import CaseStore, TfidfRetriever
-from utils import create_llm, extract_json
+from utils import create_llm_reasoning, extract_json
 
 # ── 系统提示词 ────────────────────────────────────────────
 
@@ -156,7 +156,7 @@ class PlannerAgent:
             case_store: 成功案例存储（可选）。提供时启用 few-shot 检索。
         """
         self._case_store = case_store
-        self._llm = create_llm()
+        self._llm = create_llm_reasoning()
 
     def _build_prompt(
         self,

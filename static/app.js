@@ -3,7 +3,7 @@
  *
  * 管理：
  * 1. 项目创建（需求 + 可选目录）
- * 2. 项目状态轮询
+ * 2. 项目状态：SSE project_snapshot 实时推送 + HTTP 轮询兜底
  * 3. SSE 实时日志流
  * 4. 模块卡片渲染（含 blocked 状态）
  * 5. 历史项目列表
@@ -12,6 +12,8 @@
 
 // ── 常量 ────────────────────────────────────────────
 const API_BASE = "";
+/** SSE 推送项目快照后，HTTP 轮询仅作兜底（毫秒） */
+const POLL_FALLBACK_MS = 10000;
 
 // ── 状态 ────────────────────────────────────────────
 let currentProjectId = null;
@@ -305,8 +307,8 @@ function startWatching(projectId, keepPanelVisible = false) {
     // 错误统计
     loadErrorStats(projectId);
 
-    // 轮询状态
-    currentPollTimer = setInterval(() => pollStatus(projectId), 2000);
+    // 轮询状态（SSE project_snapshot 为主，此为兜底）
+    currentPollTimer = setInterval(() => pollStatus(projectId), POLL_FALLBACK_MS);
     pollStatus(projectId); // 立即执行一次
 }
 
@@ -336,6 +338,12 @@ function connectSSE(projectId) {
         try {
             const entry = JSON.parse(event.data);
             if (entry.level === "HEARTBEAT") return;
+
+            // SSE 项目快照：实时刷新状态/模块（轮询降为兜底）
+            if (entry.project_snapshot) {
+                handleProjectSnapshot(entry.project_snapshot);
+                return;
+            }
 
             // 实时状态事件：立即更新阶段指示器和按钮
             if (entry.state_event) {
@@ -382,20 +390,31 @@ function appendLog(entry) {
 async function pollStatus(projectId) {
     try {
         const project = await requestQueue.fetch(API_BASE + "/api/projects/" + projectId, {
-            priority: RequestPriority.HIGH,
+            priority: RequestPriority.LOW,
             dedupKey: "poll-" + projectId,
             timeout: 8000,
         });
-        currentProjectData = project;
-        initLiveModules(project.modules || []);
-        project.modules = getLiveModulesList();
-        renderStatus(project);
-        renderModuleStatsBar(project);
-        renderRecentErrorLogs(project);
-        loadErrorStats(projectId);
+        applyProjectData(project, projectId);
     } catch (e) {
         // 网络错误不处理，下次轮询重试
     }
+}
+
+function applyProjectData(project, projectId) {
+    currentProjectData = project;
+    initLiveModules(project.modules || []);
+    project.modules = getLiveModulesList();
+    renderStatus(project);
+    renderModuleStatsBar(project);
+    renderRecentErrorLogs(project);
+    if (projectId) {
+        loadErrorStats(projectId);
+    }
+}
+
+function handleProjectSnapshot(snapshot) {
+    if (!snapshot || !snapshot.project_id) return;
+    applyProjectData(snapshot, snapshot.project_id);
 }
 
 function renderStatus(project) {

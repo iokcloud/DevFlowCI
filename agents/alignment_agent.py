@@ -13,7 +13,7 @@ import json
 import re
 from typing import Any
 
-from utils import create_llm, extract_json
+from utils import create_llm_reasoning, extract_json
 
 # ── 系统提示词（重写：硬约束版本）────────────────────────
 
@@ -173,7 +173,7 @@ class AlignmentAgent:
     """需求对齐分析师 Agent。"""
 
     def __init__(self) -> None:
-        self._llm = create_llm()
+        self._llm = create_llm_reasoning()
 
     @staticmethod
     def validate_alignment(result: dict[str, Any]) -> list[str]:

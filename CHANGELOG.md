@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### 新增
+- DeepSeek V4 分 Agent 配置：`create_llm_reasoning` / `create_llm_json` / `create_llm_text`（thinking + json_object）
+- SSE 推送 `project_snapshot`，Web 状态轮询降为 10s 兜底
+
 ### 变更
 - 默认 LLM 改为 `deepseek-v4-pro`（`.env.example`、`config.py`）
 - E2E workflow 超时上调以适配 Pro 推理耗时

@@ -11,7 +11,7 @@ from typing import Any
 
 from memory.case_store import CaseStore
 from config import LLM_MAX_TOKENS
-from utils import create_llm, extract_json
+from utils import create_llm_json, create_llm_text, extract_json
 
 MVP_SCOPE_NOTE = """
 ## MVP 范围（必须遵守）
@@ -141,8 +141,8 @@ class ModuleAgents:
 
     def __init__(self, case_store: CaseStore | None = None) -> None:
         self._case_store = case_store
-        self._llm = create_llm()
-        self._coder_llm = create_llm(max_tokens=LLM_MAX_TOKENS * 2)
+        self._llm = create_llm_json()
+        self._coder_llm = create_llm_json(max_tokens=LLM_MAX_TOKENS * 2)
 
     async def analyze(
         self, module_name: str, description: str, project_context: str = "",

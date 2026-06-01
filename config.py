@@ -48,6 +48,8 @@ DEEPSEEK_BASE_URL: str = os.getenv(
     "DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1"
 )
 DEEPSEEK_MODEL: str = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro")
+# V4 thinking 模式 effort：high | max（仅 thinking=enabled 时生效）
+DEEPSEEK_REASONING_EFFORT: str = os.getenv("DEEPSEEK_REASONING_EFFORT", "high")
 
 # LLM 调用参数
 LLM_TEMPERATURE: float = 0.3       # 主 Agent 用较低温度保证输出稳定

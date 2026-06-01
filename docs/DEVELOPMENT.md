@@ -31,7 +31,15 @@ cp .env.example .env
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
 | `DEEPSEEK_MODEL` | `deepseek-v4-pro` | 全部 Agent 共用；须在 **启动服务前** 写入 `.env` |
+| `DEEPSEEK_REASONING_EFFORT` | `high` | 规划/对齐 Agent 的 V4 thinking 力度 |
 | `DEEPSEEK_BASE_URL` | `https://api.deepseek.com/v1` | OpenAI 兼容端点 |
+
+**Agent 调用策略（代码内已配置）**：
+- 对齐 / PM / 商业规划 → `thinking=enabled` + `json_object`
+- 分析 / 编码 / 集成 / 修复 → `thinking=disabled` + `json_object`
+- 审查（PASS/FAIL 文本）→ `thinking=disabled`
+
+**Web 实时性**：项目状态经 SSE `project_snapshot` 推送；HTTP 轮询 10s 兜底。
 
 **生产建议（v4-pro）**：
 - 商业 MVP 保持 `BUSINESS_MVP_MAX_MODULES=1` 或 `2`

@@ -89,6 +89,8 @@ from workflow.stream_relay import push_ai_token, AGENT_LABEL_MAP
 
 # 全局字典：project_id → asyncio.Queue
 _log_queues: dict[str, asyncio.Queue[dict[str, Any]]] = {}
+_snapshot_last_push: dict[str, float] = {}
+SNAPSHOT_DEBOUNCE_SEC = 0.8
 
 
 def get_log_queue(project_id: str) -> asyncio.Queue[dict[str, Any]]:
@@ -176,6 +178,40 @@ async def push_log(
 def remove_log_queue(project_id: str) -> None:
     """清理项目的日志队列。"""
     _log_queues.pop(project_id, None)
+    _snapshot_last_push.pop(project_id, None)
+
+
+async def push_project_snapshot(project_id: str, *, force: bool = False) -> None:
+    """推送完整项目快照到 SSE（供 Web 实时刷新，轮询作兜底）。"""
+    import time
+
+    now = time.monotonic()
+    if not force:
+        last = _snapshot_last_push.get(project_id, 0.0)
+        if now - last < SNAPSHOT_DEBOUNCE_SEC:
+            return
+    _snapshot_last_push[project_id] = now
+
+    try:
+        from workflow.project_snapshot import fetch_project_snapshot
+
+        snapshot = await fetch_project_snapshot(project_id)
+        if not snapshot:
+            return
+        entry: dict[str, Any] = {
+            "project_id": project_id,
+            "level": "SNAPSHOT",
+            "message": "",
+            "module_name": "",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "project_snapshot": snapshot,
+        }
+        queue = get_log_queue(project_id)
+        queue.put_nowait(entry)
+    except asyncio.QueueFull:
+        pass
+    except Exception:
+        pass
 
 
 async def push_module_event(
@@ -238,6 +274,8 @@ async def push_module_event(
             await db.commit()
     except Exception:
         pass
+
+    await push_project_snapshot(project_id)
 
 
 async def stream_logs(
@@ -373,6 +411,7 @@ async def _sync_project_status(project_id: str, status: str) -> None:
             if project:
                 project.status = db_status
                 await db.commit()
+                await push_project_snapshot(project_id, force=True)
     except Exception:
         pass  # 状态同步失败不阻塞主流程
 

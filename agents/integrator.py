@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from config import LLM_MAX_TOKENS, LLM_TIMEOUT_SECONDS
-from utils import create_llm, extract_json
+from utils import create_llm_json, extract_json
 
 
 # ── 数据结构 ──────────────────────────────────────────────
@@ -106,7 +106,7 @@ class IntegratorAgent:
     """集成工程师 Agent。"""
 
     def __init__(self) -> None:
-        self._llm = create_llm(
+        self._llm = create_llm_json(
             max_tokens=LLM_MAX_TOKENS * 2,  # 集成代码较长
             timeout=LLM_TIMEOUT_SECONDS * 2,
         )
@@ -176,7 +176,7 @@ class GlobalReviewerAgent:
     """全局审查者 Agent。"""
 
     def __init__(self) -> None:
-        self._llm = create_llm(temperature=0.2)
+        self._llm = create_llm_json(temperature=0.2)
 
     async def review(
         self,

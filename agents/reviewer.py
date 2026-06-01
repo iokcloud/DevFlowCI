@@ -10,7 +10,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from utils import create_llm
+from utils import create_llm_text
 
 
 # ── 数据结构 ──────────────────────────────────────────────
@@ -80,7 +80,7 @@ class ReviewerAgent:
     )
 
     def __init__(self) -> None:
-        self._llm = create_llm(temperature=0.1)  # 审查用更低温度
+        self._llm = create_llm_text(temperature=0.1)  # 审查用更低温度
 
     @staticmethod
     def extract_verdict(text: str) -> ReviewResult:

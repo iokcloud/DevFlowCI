@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any
+from typing import Any, Literal
 
 from langchain_openai import ChatOpenAI
 
@@ -15,11 +15,14 @@ from config import (
     DEEPSEEK_API_KEY,
     DEEPSEEK_BASE_URL,
     DEEPSEEK_MODEL,
+    DEEPSEEK_REASONING_EFFORT,
     LLM_MAX_TOKENS,
     LLM_TEMPERATURE,
     LLM_TIMEOUT_SECONDS,
     LLM_MAX_RETRIES,
 )
+
+ThinkingMode = Literal["enabled", "disabled"]
 
 
 def _strip_json_fence(text: str) -> str:
@@ -132,27 +135,118 @@ def create_llm(
     max_tokens: int | None = None,
     timeout: int | None = None,
     max_retries: int | None = None,
+    *,
+    thinking: ThinkingMode | None = None,
+    reasoning_effort: str | None = None,
+    json_output: bool = False,
 ) -> ChatOpenAI:
-    """创建配置好的 ChatOpenAI 实例（共享工厂）。
-
-    所有参数可选，未提供时使用 config 中的默认值。
+    """创建配置好的 ChatOpenAI 实例（DeepSeek V4 兼容）。
 
     Args:
         model: 模型名（默认 DEEPSEEK_MODEL）
-        temperature: 模型温度（默认 LLM_TEMPERATURE）
-        max_tokens: 最大 token 数（默认 LLM_MAX_TOKENS）
-        timeout: HTTP 超时秒数（默认 LLM_TIMEOUT_SECONDS）
-        max_retries: 失败重试次数（默认 LLM_MAX_RETRIES）
+        temperature: 温度（thinking=disabled 时生效）
+        max_tokens: 最大 token 数
+        timeout: HTTP 超时秒数
+        max_retries: 失败重试次数
+        thinking: V4 thinking 开关（enabled / disabled）
+        reasoning_effort: thinking=enabled 时的推理力度（high / max）
+        json_output: 是否启用官方 JSON Output（response_format=json_object）
 
     Returns:
         配置完成的 ChatOpenAI 客户端实例
     """
-    return ChatOpenAI(
-        model=model if model is not None else DEEPSEEK_MODEL,
-        api_key=DEEPSEEK_API_KEY,
-        base_url=DEEPSEEK_BASE_URL,
-        temperature=temperature if temperature is not None else LLM_TEMPERATURE,
-        max_tokens=max_tokens if max_tokens is not None else LLM_MAX_TOKENS,
-        timeout=timeout if timeout is not None else LLM_TIMEOUT_SECONDS,
-        max_retries=max_retries if max_retries is not None else LLM_MAX_RETRIES,
+    kwargs: dict[str, Any] = {
+        "model": model if model is not None else DEEPSEEK_MODEL,
+        "api_key": DEEPSEEK_API_KEY,
+        "base_url": DEEPSEEK_BASE_URL,
+        "max_tokens": max_tokens if max_tokens is not None else LLM_MAX_TOKENS,
+        "timeout": timeout if timeout is not None else LLM_TIMEOUT_SECONDS,
+        "max_retries": max_retries if max_retries is not None else LLM_MAX_RETRIES,
+    }
+
+    model_kwargs: dict[str, Any] = {}
+    extra_body: dict[str, Any] = {}
+
+    if json_output:
+        model_kwargs["response_format"] = {"type": "json_object"}
+
+    if thinking is not None:
+        extra_body["thinking"] = {"type": thinking}
+        if thinking == "enabled":
+            kwargs["reasoning_effort"] = reasoning_effort or DEEPSEEK_REASONING_EFFORT
+        else:
+            kwargs["temperature"] = (
+                temperature if temperature is not None else LLM_TEMPERATURE
+            )
+    else:
+        kwargs["temperature"] = (
+            temperature if temperature is not None else LLM_TEMPERATURE
+        )
+
+    if extra_body:
+        kwargs["extra_body"] = extra_body
+    if model_kwargs:
+        kwargs["model_kwargs"] = model_kwargs
+
+    return ChatOpenAI(**kwargs)
+
+
+def create_llm_reasoning(
+    *,
+    model: str | None = None,
+    max_tokens: int | None = None,
+    timeout: int | None = None,
+    max_retries: int | None = None,
+    reasoning_effort: str | None = None,
+    json_output: bool = True,
+) -> ChatOpenAI:
+    """规划/对齐类 Agent：V4 thinking + 可选 JSON Output。"""
+    return create_llm(
+        model=model,
+        max_tokens=max_tokens,
+        timeout=timeout,
+        max_retries=max_retries,
+        thinking="enabled",
+        reasoning_effort=reasoning_effort,
+        json_output=json_output,
+    )
+
+
+def create_llm_json(
+    *,
+    model: str | None = None,
+    temperature: float | None = None,
+    max_tokens: int | None = None,
+    timeout: int | None = None,
+    max_retries: int | None = None,
+) -> ChatOpenAI:
+    """结构化 JSON 输出 Agent：thinking 关闭 + json_object。"""
+    return create_llm(
+        model=model,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        timeout=timeout,
+        max_retries=max_retries,
+        thinking="disabled",
+        json_output=True,
+    )
+
+
+def create_llm_text(
+    *,
+    model: str | None = None,
+    temperature: float | None = None,
+    max_tokens: int | None = None,
+    timeout: int | None = None,
+    max_retries: int | None = None,
+) -> ChatOpenAI:
+    """自由文本 Agent（如 PASS/FAIL 审查）：thinking 关闭。"""
+    return create_llm(
+        model=model,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        timeout=timeout,
+        max_retries=max_retries,
+        thinking="disabled",
+        json_output=False,
     )
