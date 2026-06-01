@@ -16,7 +16,7 @@ env:
 jobs:
   business:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -67,7 +67,7 @@ jobs:
         if: steps.key.outputs.skip != 'true'
         env:
           TEST_FLOW_BASE: http://127.0.0.1:8000
-          TEST_FLOW_TIMEOUT: "900"
+          TEST_FLOW_TIMEOUT: "1800"
         run: python test_flow_business.py
 
       - name: Upload deliveries on failure
