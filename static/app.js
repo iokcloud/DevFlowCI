@@ -19,6 +19,8 @@ let currentPollTimer = null;
 let currentEventSource = null;
 let currentProjectData = null;
 let selectedDirectory = ""; // 用户通过浏览器选中的项目目录
+/** @type {Record<string, object>} 执行期 SSE 模块快照，与轮询结果合并 */
+let liveModulesByName = {};
 
 // ── DOM 引用 ────────────────────────────────────────
 const $ = (sel) => document.querySelector(sel);
@@ -264,6 +266,7 @@ function setupSubmit() {
 function startWatching(projectId, keepPanelVisible = false) {
     // 停止之前的监控
     stopWatching();
+    liveModulesByName = {};
 
     // 收缩左侧表单，展开工作区
     collapseSidebar();
@@ -281,6 +284,7 @@ function startWatching(projectId, keepPanelVisible = false) {
     els.alignmentPanel = document.getElementById("alignment-panel");
     // ★ keepPanelVisible：重试场景保留面板内动画，让用户持续看到分析过程
     if (!keepPanelVisible && els.alignmentPanel) els.alignmentPanel.classList.add("hidden");
+    if (els.moduleStatsBar) els.moduleStatsBar.classList.add("hidden");
     els.modulesGrid.innerHTML = "";
     els.logContainer.innerHTML = "";
     els.currentProjectTitle.textContent = "项目: " + projectId;
@@ -339,6 +343,12 @@ function connectSSE(projectId) {
                 return;  // 状态事件不追加到日志
             }
 
+            // 模块状态 SSE：联动 module-stats-bar 与模块卡片
+            if (entry.module_event) {
+                handleModuleEvent(entry.module_event);
+                return;
+            }
+
             appendLog(entry);
         } catch (e) {
             // skip parse errors
@@ -377,6 +387,8 @@ async function pollStatus(projectId) {
             timeout: 8000,
         });
         currentProjectData = project;
+        initLiveModules(project.modules || []);
+        project.modules = getLiveModulesList();
         renderStatus(project);
         renderModuleStatsBar(project);
         renderRecentErrorLogs(project);
@@ -569,6 +581,7 @@ function renderStatus(project) {
 
     // 执行中
     if (project.status === "executing" && project.modules) {
+        renderModuleStatsBar(project);
         const done = project.modules.filter(
             (m) => m.status === "passed"
         ).length;
@@ -594,6 +607,10 @@ function renderStatus(project) {
     if (project.status === "integrating" || project.status === "reviewing") {
         updatePhaseStepper("deliver");
         updateActionButton("processing", "集成审查中...");
+        if (project.modules && project.modules.length) {
+            renderModuleStatsBar(project);
+            renderModules(project.modules);
+        }
     }
 
     // 完成/失败/需人工介入
@@ -631,6 +648,73 @@ async function autoConfirmPlan(projectId) {
         });
     } catch (e) {
         // ignore
+    }
+}
+
+// ── 执行期模块 SSE 快照 ───────────────────────────────
+
+function initLiveModules(modules) {
+    liveModulesByName = {};
+    (modules || []).forEach((m) => {
+        if (m && m.module_name) {
+            liveModulesByName[m.module_name] = { ...m };
+        }
+    });
+}
+
+function getLiveModulesList() {
+    const names = Object.keys(liveModulesByName).sort();
+    return names.map((n) => liveModulesByName[n]);
+}
+
+function mergeLiveModuleEvent(ev) {
+    if (!ev || !ev.module_name) return;
+    const prev = liveModulesByName[ev.module_name] || { module_name: ev.module_name };
+    liveModulesByName[ev.module_name] = {
+        ...prev,
+        module_name: ev.module_name,
+        status: ev.status || prev.status || "pending",
+        failure_reason: ev.failure_reason !== undefined && ev.failure_reason !== ""
+            ? ev.failure_reason
+            : prev.failure_reason,
+        description: ev.description || prev.description || "",
+    };
+}
+
+function applyLiveModulesToProject(project) {
+    if (!project) return project;
+    const live = getLiveModulesList();
+    if (live.length > 0) {
+        project.modules = live;
+    }
+    return project;
+}
+
+function handleModuleEvent(ev) {
+    mergeLiveModuleEvent(ev);
+    if (!currentProjectData) return;
+    applyLiveModulesToProject(currentProjectData);
+
+    renderModuleStatsBar(currentProjectData);
+    const st = currentProjectData.status || "";
+    const showModules = ["executing", "integrating", "reviewing", "completed"].includes(st);
+    if (showModules && currentProjectData.modules && currentProjectData.modules.length) {
+        renderModules(currentProjectData.modules);
+    }
+
+    if (st === "executing" && currentProjectData.modules) {
+        const passed = currentProjectData.modules.filter((m) => m.status === "passed").length;
+        const blocked = currentProjectData.modules.filter((m) => m.status === "blocked").length;
+        const total = currentProjectData.modules.length;
+        let text = `模块执行中：${passed}/${total} 通过`;
+        if (blocked > 0) text += `（${blocked} 个阻塞）`;
+        const active = currentProjectData.modules.find((m) =>
+            ["analyzing", "coding", "testing", "reviewing", "auto_fixing"].includes(m.status)
+        );
+        if (active) {
+            text += ` · ${active.module_name} ${statusLabel(active.status)}`;
+        }
+        els.progressText.textContent = text;
     }
 }
 
@@ -738,7 +822,10 @@ function renderModules(modules) {
             ${renderTestSummary(m)}
             ${
                 m.failure_reason && isBlocked
-                    ? `<div class="failure-reason">失败原因: ${escapeHtml(m.failure_reason).substring(0, 200)}</div>`
+                    ? `<details class="failure-reason-details" open>
+                        <summary class="failure-reason-summary">⚠️ 阻塞原因</summary>
+                        <div class="failure-reason">${formatFailureReason(m.failure_reason)}</div>
+                       </details>`
                     : ""
             }
             ${fixHistoryHtml}
@@ -1743,6 +1830,10 @@ function showBusinessPlan(project, alignment) {
 
     let html = `<div class="biz-plan">
         <div class="biz-exec-summary"><h3>📋 执行摘要</h3><p>${escapeHtml(exec)}</p></div>
+        <div id="biz-tech-preview" class="biz-tech-preview biz-tech-preview-loading">
+            <h4>💻 确认后将生成的技术 MVP</h4>
+            <p class="biz-tech-preview-hint">正在计算技术需求与模块数…</p>
+        </div>
         <div class="biz-grid">
             <div class="biz-card"><h4>🎯 目标用户</h4><p>${escapeHtml(market.target_audience || "待补充")}</p></div>
             <div class="biz-card"><h4>🏆 竞争格局</h4><p>${escapeHtml(market.competition || "待补充")}</p></div>
@@ -1773,6 +1864,40 @@ function showBusinessPlan(project, alignment) {
     content.innerHTML = html;
     animatePanelIn(panel);
     window._bizData = alignment;
+    loadBusinessTechPreview(project.project_id);
+}
+
+async function loadBusinessTechPreview(projectId) {
+    const box = document.getElementById("biz-tech-preview");
+    if (!box) return;
+    try {
+        const data = await requestQueue.fetch(
+            API_BASE + "/api/projects/" + projectId + "/business_tech_preview",
+            { priority: RequestPriority.HIGH, timeout: 15000 }
+        );
+        const modCount = data.estimated_modules ?? data.mvp_max_modules ?? 1;
+        box.classList.remove("biz-tech-preview-loading");
+        box.innerHTML = `
+            <h4>💻 确认后将生成的技术 MVP</h4>
+            <div class="biz-tech-preview-meta">
+                <span class="biz-tech-chip">预计模块数：<strong>${modCount}</strong></span>
+                <span class="biz-tech-chip">MVP 上限：<strong>${data.mvp_max_modules ?? modCount}</strong></span>
+            </div>
+            <div class="biz-tech-preview-body">${escapeHtml(data.tech_requirement || "")}</div>
+            <p class="biz-tech-preview-note">确认商业计划后，系统将按上述技术需求进入 PM 规划与模块执行。</p>`;
+    } catch (e) {
+        box.classList.remove("biz-tech-preview-loading");
+        box.innerHTML = `
+            <h4>💻 确认后将生成的技术 MVP</h4>
+            <p class="biz-tech-preview-hint">预览暂不可用：${escapeHtml(e.message || "请刷新重试")}</p>`;
+    }
+}
+
+function formatFailureReason(text) {
+    if (!text) return "";
+    return escapeHtml(String(text))
+        .replace(/\n/g, "<br>")
+        .replace(/;\s*/g, "<br>• ");
 }
 
 async function confirmBusinessPlan(projectId) {
@@ -1830,6 +1955,7 @@ function setupNewProjectButton() {
 }
 
 function resetToInitialState() {
+    liveModulesByName = {};
     stopWatching();
     currentProjectId = null;
     currentProjectData = null;
