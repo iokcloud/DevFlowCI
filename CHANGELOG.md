@@ -43,3 +43,14 @@
 
 [0.4.0]: https://github.com/iokcloud/DevFlowCI/releases/tag/v0.4.0
 [0.2.0]: https://github.com/iokcloud/DevFlowCI/releases/tag/v0.2.0
+
+## [Unreleased]
+
+### 新增
+- `scripts/memory_search.py` / `memory_search.bat` — 记忆检索 CLI
+- `.github/workflows/nightly-e2e.yml` — 定时 E2E 冒烟（需 `DEEPSEEK_API_KEY` secret）
+- `tests/test_memory_search.py`（6 项）
+
+### 变更
+- `docs/MEMORY_INDEX.md`、`docs/DEVELOPMENT.md` — 检索与 nightly 说明
+- `AI_COLLABORATION_GUIDE.md` — Phase 3 memory_search 完成

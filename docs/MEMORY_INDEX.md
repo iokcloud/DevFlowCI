@@ -50,3 +50,10 @@
 ## 健康检查
 
 运行 `scripts/session_start.sh` 或 `scripts/session_start.bat` 可自动检查记忆文件是否存在及行数。
+
+记忆检索：
+
+```bash
+python scripts/memory_search.py "E2E 超时"
+scripts\memory_search.bat "分支保护" --source decisions
+```

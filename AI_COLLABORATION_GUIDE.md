@@ -766,7 +766,7 @@ echo "  - 安全敏感操作"
 | **Phase 2**（✅ 2026-06-01） | session_start/end.sh/.bat | 会话启动与质量检查自动化 | phase 1 稳定 |
 | **Phase 2**（✅ 2026-06-01） | test_flow.bat + 心跳测试 | E2E 冒烟脚本不再假卡住 | phase 1 稳定 |
 | **Phase 2**（进行中） | pre-commit 钩子 | 阻断级自检自动化 | scripts/pre_commit_check.sh |
-| **Phase 3**（1 个月） | memory_search.py | 记忆检索 CLI | 记忆条目 > 20 |
+| **Phase 3**（✅ 2026-06-01） | memory_search.py | 记忆检索 CLI | 记忆条目 > 20 |
 | **Phase 3**（✅ 2026-06-01） | session_end.sh 质量检查 | 会话结束质量评分（0–100） | 3+ 次会话完成 |
 | **Phase 4**（2 个月+） | 经验自动聚类 | 从 LEARNINGS.md 中自动发现高频模式 | 教训条目 > 50 |
 | **Phase 4**（2 个月+） | Prompt 自动调优 | 基于审查重试数据自动优化 Prompt 模板 | 审查数据 > 20 |
