@@ -130,7 +130,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="DevFlow CI",
     description="自动化多 Agent 编码工作流系统 — 项目型开发伙伴",
-    version="0.4.0",
+    version="0.4.1",
     lifespan=lifespan,
 )
 

@@ -5,9 +5,25 @@ on:
     # 每天 UTC 18:00 ≈ 北京时间次日 02:00
     - cron: "0 18 * * *"
   workflow_dispatch:
+    inputs:
+      scenario:
+        description: "smoke=技术冒烟 | business=商业文档全流程"
+        type: choice
+        options:
+          - smoke
+          - business
+        default: smoke
+
+concurrency:
+  group: nightly-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   smoke:
+    if: github.event_name == 'schedule' || inputs.scenario == 'smoke' || inputs.scenario == ''
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -67,6 +83,71 @@ jobs:
         if: failure() && steps.key.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: nightly-e2e-deliveries
+          name: nightly-e2e-deliveries-smoke
+          path: deliveries/
+          if-no-files-found: ignore
+
+  business:
+    if: github.event_name == 'workflow_dispatch' && inputs.scenario == 'business'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Check API key
+        id: key
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          if [ -z "$DEEPSEEK_API_KEY" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "::warning::DEEPSEEK_API_KEY secret 未配置，跳过 business E2E"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Prepare environment
+        if: steps.key.outputs.skip != 'true'
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          cp .env.example .env
+          sed -i "s/your_key_here/$DEEPSEEK_API_KEY/" .env
+
+      - name: Start server
+        if: steps.key.outputs.skip != 'true'
+        run: |
+          python -m uvicorn main:app --host 127.0.0.1 --port 8000 --log-level warning &
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8000/api/health >/dev/null; then
+              echo "Server ready"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Server failed to start"
+          exit 1
+
+      - name: Run test_flow_business
+        if: steps.key.outputs.skip != 'true'
+        env:
+          TEST_FLOW_BASE: http://127.0.0.1:8000
+          TEST_FLOW_TIMEOUT: "900"
+        run: python test_flow_business.py
+
+      - name: Upload deliveries on failure
+        if: failure() && steps.key.outputs.skip != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-e2e-deliveries-business
           path: deliveries/
           if-no-files-found: ignore

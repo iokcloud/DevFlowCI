@@ -2,6 +2,25 @@
 
 本文件记录 DevFlow CI 的重要变更。格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)。
 
+## [Unreleased]
+
+## [0.4.1] - 2026-06-01
+
+### 新增
+- `scripts/memory_search.py` / `memory_search.bat` — 记忆检索 CLI（6 项单元测试）
+- `.github/workflows/nightly-e2e.yml` — 定时 E2E 冒烟（需 `DEEPSEEK_API_KEY` secret）
+- `test_flow_business.py` / `scripts/test_flow_business.bat` — 商业文档模式 E2E 冒烟
+- `.github/workflows/weekly-business-e2e.yml` — 每周商业 E2E
+- 集成测试：商业对齐、多模块 blocked、GlobalReviewer dict 回归
+
+### 变更
+- Nightly E2E：`concurrency`、手动 `scenario` 选择（smoke/business）
+- CI / E2E workflows：`FORCE_JAVASCRIPT_ACTIONS_TO_NODE24` 消除 Node 20 弃用警告
+- `docs/MEMORY_INDEX.md`、`docs/DEVELOPMENT.md`、`AI_COLLABORATION_GUIDE.md` 同步
+
+### 修复
+- GlobalReviewer 对 dict `project_structure` 切片报错（nightly E2E 验证通过）
+
 ## [0.4.0] - 2026-06-01
 
 ### 新增
@@ -41,16 +60,6 @@
 - 多 Agent 工作流、异常自愈、版本化交付、Autopilot 模板
 - AI 协作规范（AI_COLLABORATION_GUIDE.md）
 
+[0.4.1]: https://github.com/iokcloud/DevFlowCI/releases/tag/v0.4.1
 [0.4.0]: https://github.com/iokcloud/DevFlowCI/releases/tag/v0.4.0
 [0.2.0]: https://github.com/iokcloud/DevFlowCI/releases/tag/v0.2.0
-
-## [Unreleased]
-
-### 新增
-- `scripts/memory_search.py` / `memory_search.bat` — 记忆检索 CLI
-- `.github/workflows/nightly-e2e.yml` — 定时 E2E 冒烟（需 `DEEPSEEK_API_KEY` secret）
-- `tests/test_memory_search.py`（6 项）
-
-### 变更
-- `docs/MEMORY_INDEX.md`、`docs/DEVELOPMENT.md` — 检索与 nightly 说明
-- `AI_COLLABORATION_GUIDE.md` — Phase 3 memory_search 完成

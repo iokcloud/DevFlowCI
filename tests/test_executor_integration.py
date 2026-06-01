@@ -260,3 +260,136 @@ async def test_execute_from_plan_module_review_fail_then_blocked(
     mod = result["module_results"].get("hello", {})
     assert mod.get("status") in ("blocked", "failed")
     assert result["status"] in ("failed", "needs_review", "completed", "completed_with_warnings")
+
+
+@pytest.mark.asyncio
+async def test_execute_alignment_business_mode(
+    executor,
+    base_state,
+    seeded_project,
+    monkeypatch,
+):
+    """force_mode=business 时应走 BusinessPlannerAgent 而非 AlignmentAgent。"""
+    biz_context = {
+        "document_type": "business",
+        "analyzed_files": [
+            {"file": "report.md", "summary": "市场规模 竞争分析 消费者行为 营收模型"},
+        ],
+        "overall_summary": "银发经济市场调研报告",
+        "source_files": [],
+    }
+    monkeypatch.setattr(
+        "workflow.executor.analyze_project_context_structured",
+        lambda directory: biz_context,
+    )
+    mock_plan = {
+        "executive_summary": "面向银发群体的健康管理平台",
+        "market_analysis": {"target_audience": "60+ 用户"},
+        "roadmap": [
+            {
+                "phase": "MVP",
+                "duration": "3个月",
+                "actions": ["用户调研", "原型设计"],
+                "milestones": ["内测上线"],
+            }
+        ],
+        "recommendations": "优先开发健康监测与家属通知功能",
+    }
+    executor._business_planner.plan = AsyncMock(return_value=mock_plan)
+
+    base_state["directory"] = "/fake/business-project"
+    base_state["force_mode"] = "business"
+
+    result = await executor.execute_alignment(base_state)
+
+    assert result["status"] == "aligned"
+    assert result["alignment_result"]["plan_type"] == "business"
+    assert "银发群体" in result["alignment_result"]["executive_summary"]
+    executor._business_planner.plan.assert_awaited()
+    executor._alignment_agent.analyze_alternatives.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_execute_from_plan_multi_module_one_blocked_completes(
+    executor,
+    base_state,
+    seeded_project,
+    sample_plan_module,
+    tmp_path: Path,
+    monkeypatch,
+):
+    """一模块通过、一模块 blocked 时，集成与全局审查仍应完成交付。"""
+    monkeypatch.setattr("workflow.executor.TEST_EXECUTION_ENABLED", False)
+    monkeypatch.setattr("workflow.executor.AUTOPILOT_ENABLED", False)
+    monkeypatch.setattr("workflow.executor.AUTO_FIX_ENABLED", False)
+    monkeypatch.setattr("workflow.executor.MAX_REVIEW_RETRIES", 1)
+    monkeypatch.setattr("workflow.executor.DELIVERIES_DIR", tmp_path / "deliveries")
+
+    payment_mod = {
+        "module_name": "payment",
+        "description": "支付模块",
+        "dependencies": ["hello"],
+        "type": "backend",
+    }
+
+    async def analyze_side_effect(module_name: str, description: str, context: str):
+        return ModuleSpec(
+            module_name=module_name,
+            summary=description,
+            api_endpoints=[f"POST /{module_name}"],
+        )
+
+    async def code_side_effect(module_name: str, spec: ModuleSpec, feedback: str):
+        return ModuleCode(
+            module_name=module_name,
+            code=f"def {module_name}():\n    return '{module_name}'\n",
+            test_code=f"def test_{module_name}():\n    assert {module_name}()\n",
+        )
+
+    async def test_side_effect(module_name: str, code: ModuleCode, spec: ModuleSpec):
+        return ModuleTestResult(module_name=module_name, passed=True, details="mock ok")
+
+    async def review_side_effect(module_name: str, *args, **kwargs):
+        if module_name == "payment":
+            return ReviewResult(
+                passed=False,
+                summary="支付模块审查失败",
+                issues=["缺少错误处理"],
+            )
+        return ReviewResult(passed=True, summary="mock review passed")
+
+    executor._modules.analyze = AsyncMock(side_effect=analyze_side_effect)
+    executor._modules.code = AsyncMock(side_effect=code_side_effect)
+    executor._modules.test = AsyncMock(side_effect=test_side_effect)
+    executor._reviewer.review = AsyncMock(side_effect=review_side_effect)
+    executor._integrator.integrate = AsyncMock(
+        return_value=IntegrationResult(
+            project_structure={"hello.py": "main", "payment.py": "blocked stub"},
+            main_code="from hello import hello\n",
+            integration_tests="def test_integration():\n    assert True\n",
+            readme="# Multi Module Project\n",
+            requirements="fastapi>=0.115.0\n",
+        )
+    )
+    executor._global_reviewer.review = AsyncMock(
+        return_value=GlobalReviewResult(
+            passed=True,
+            score=75,
+            summary="有阻塞模块但可交付",
+            blocked_module_issues=["payment 接口缺失"],
+        )
+    )
+
+    base_state["plan_modules"] = [sample_plan_module, payment_mod]
+    base_state["plan_json"] = '{"modules": []}'
+    base_state["status"] = "plan_ready"
+
+    result = await executor.execute_from_plan(base_state)
+
+    assert result["status"] == "completed"
+    assert result["module_results"]["hello"]["status"] == "passed"
+    assert result["module_results"]["payment"]["status"] == "blocked"
+    assert "payment" in result.get("blocked_modules", [])
+    assert result.get("delivery_path")
+    executor._integrator.integrate.assert_awaited()
+    executor._global_reviewer.review.assert_awaited()
