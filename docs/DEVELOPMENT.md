@@ -1,6 +1,6 @@
 # 本地开发指南
 
-> 版本：v0.4.0 | 最后更新：2026-06-01
+> 版本：v0.4.1 | 最后更新：2026-06-01
 
 ## 环境要求
 
@@ -91,20 +91,30 @@ python test_e2e.py
 ### 单元测试（无需启动服务）
 
 ```bash
-# 快测（与 PR CI 一致，50 项）
+# 快测（与 PR CI 一致）
 pytest tests/ -m "not integration" -v
 
-# 全量（含 5 项集成测试，55 项）
+# 全量（含集成测试）
 pytest tests/ -v
 ```
 
 CI 策略：PR 只跑 `-m "not integration"`；合并到 `master` 后额外跑集成测试。见 `.github/workflows/ci.yml`。
 
-集成测试（mock LLM，无需 API Key）：
+集成测试（mock LLM，无需 API Key，8 项）：
 
 ```bash
 pytest tests/ -m integration -v
 ```
+
+### 商业文档模式冒烟
+
+```bash
+scripts\test_flow_business.bat
+# 或
+python test_flow_business.py
+```
+
+创建项目时传 `"mode": "business"`，验证 BusinessPlanner → 确认 → 技术规划 → 执行全链路。
 
 ### 分支保护（master）
 
@@ -125,11 +135,20 @@ python scripts/memory_search.py "关键词"
 python scripts/memory_search.py "自愈" --source learnings --top 5
 ```
 
-### Nightly E2E
+### Nightly / Weekly E2E
 
-仓库含 `.github/workflows/nightly-e2e.yml`（每日定时 + 手动触发）。
+| Workflow | 触发 | 脚本 |
+|----------|------|------|
+| `nightly-e2e.yml` | 每日 UTC 18:00 + 手动（smoke/business） | `test_flow.py` / `test_flow_business.py` |
+| `weekly-business-e2e.yml` | 每周日 UTC 10:00 + 手动 | `test_flow_business.py` |
 
-在 GitHub **Settings → Secrets → Actions** 配置 `DEEPSEEK_API_KEY` 后才会真正跑 `test_flow.py`；未配置时 workflow 会跳过并 warning。
+在 GitHub **Settings → Secrets → Actions** 配置 `DEEPSEEK_API_KEY` 后才会真正跑 E2E；未配置时 workflow 会跳过并 warning。
+
+手动触发商业 E2E：
+
+```bash
+gh workflow run nightly-e2e.yml -f scenario=business
+```
 
 提交前可选：
 
