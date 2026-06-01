@@ -4,11 +4,23 @@
 
 ## [Unreleased]
 
+## [0.4.6] - 2026-06-01
+
+### 新增
+- Web：SSE 模块状态联动 module-stats-bar、blocked failure_reason 详情
+- 商业确认前技术 MVP 预览 API + UI
+- `scripts/analyze_blocked.bat`（Windows 一键排查）
+
 ### 变更
-- 纯商业路径默认 Phase-1 单模块（`BUSINESS_MVP_MAX_MODULES` 默认 1）
-- 商业 `mvp_max_modules` 写入 alignment 并在 plan_ready 确认时传递到执行阶段
-- MVP 单模块：先跑 pytest，测试全绿可放行（即使审查 FAIL）
-- PM 规划 cap=1 时强制单模块 + 描述对齐技术需求
+- 纯商业默认 Phase-1 单模块（`BUSINESS_MVP_MAX_MODULES` 默认 1）
+- 商业 `mvp_max_modules` 写入 alignment 并在 plan_ready 执行阶段传递
+- MVP 单模块：pytest 全绿可放行（审查 FAIL 时降级）
+- PM cap=1 强制单模块 + 描述对齐技术需求
+
+### 验证
+- Weekly full 商业 E2E 通过（run 26759523088，约 2m，无 is_prime）
+
+[0.4.6]: https://github.com/iokcloud/DevFlowCI/releases/tag/v0.4.6
 
 ## [0.4.5] - 2026-06-01
 
