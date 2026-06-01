@@ -4,6 +4,11 @@
 
 ## [Unreleased]
 
+### 变更
+- Weekly Business E2E 增加 `business-multi` job（cap=2，与 full 并行）
+- `business-multi-e2e.yml` 失败时 Slack 通知
+- `.env.example` / `docs/DEVELOPMENT.md` 补充 `BUSINESS_MVP_MAX_MODULES` 生产建议
+
 ## [0.4.7] - 2026-06-01
 
 ### 新增

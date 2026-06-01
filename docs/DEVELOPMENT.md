@@ -1,6 +1,6 @@
 # 本地开发指南
 
-> 版本：v0.4.2 | 最后更新：2026-06-01
+> 版本：v0.4.7 | 最后更新：2026-06-01
 
 ## 环境要求
 
@@ -106,7 +106,7 @@ CI 策略：PR 只跑 `-m "not integration"`；合并到 `master` 后额外跑�
 pytest tests/ -m integration -v
 ```
 
-### 商业文档模式冒烟
+### 商业文档模式 E2E
 
 ```bash
 scripts\test_flow_business.bat
@@ -115,6 +115,26 @@ python test_flow_business.py
 ```
 
 创建项目时传 `"mode": "business"`，验证 BusinessPlanner → 确认 → 技术规划 → 执行全链路。
+
+| 模式 | 环境变量 | 说明 |
+|------|----------|------|
+| `smoke`（默认） | — | 含 is_prime 短路径 |
+| `full` | — | 纯商业 Phase-1 单模块 |
+| `multi` | `BUSINESS_MVP_MAX_MODULES=2` | 多模块商业（服务端与客户端均需设置） |
+
+多模块示例（PowerShell，**先设 env 再启动服务**）：
+
+```powershell
+$env:BUSINESS_MVP_MAX_MODULES="2"
+python -m uvicorn main:app --host 127.0.0.1 --port 8000
+# 另开终端
+$env:TEST_FLOW_BUSINESS_MODE="multi"
+$env:TEST_FLOW_EXPECT_MODULES="2"
+$env:BUSINESS_MVP_MAX_MODULES="2"
+python test_flow_business.py
+```
+
+**生产建议**：默认 `BUSINESS_MVP_MAX_MODULES=1`（最稳）；多模块推荐 `2`；`≥3` 仅实验，PM 易产出前端/ML 导致 blocked。
 
 ### 分支保护（master）
 
@@ -140,7 +160,8 @@ python scripts/memory_search.py "自愈" --source learnings --top 5
 | Workflow | 触发 | 脚本 |
 |----------|------|------|
 | `nightly-e2e.yml` | 每日 UTC 18:00 + 手动（smoke/business） | `test_flow.py` / `test_flow_business.py` |
-| `weekly-business-e2e.yml` | 每周日 UTC 10:00 + 手动 | `test_flow_business.py` |
+| `weekly-business-e2e.yml` | 每周日 UTC 10:00 + 手动 | `full` + `multi`（cap=2）并行 |
+| `business-multi-e2e.yml` | 手动 | `test_flow_business.py` multi 模式 |
 
 在 GitHub **Settings → Secrets → Actions** 配置 `DEEPSEEK_API_KEY` 后才会真正跑 E2E；未配置时 workflow 会跳过并 warning。
 
@@ -157,9 +178,9 @@ set TEST_FLOW_MIN_PASSED=1
 python test_flow.py
 ```
 
-商业 MVP 模块上限（默认 3，环境变量 `BUSINESS_MVP_MAX_MODULES`）。
+商业 MVP 模块上限：环境变量 `BUSINESS_MVP_MAX_MODULES`，**默认 1**（见 `.env.example`）。
 
-可选 Slack 通知：在 GitHub Secrets 配置 `SLACK_WEBHOOK_URL`，E2E 失败时推送链接。
+可选 Slack 通知：在 GitHub Secrets 配置 `SLACK_WEBHOOK_URL`，weekly / nightly / multi E2E 失败时推送链接。
 
 ### 经验聚类
 
