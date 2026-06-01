@@ -1789,7 +1789,7 @@ class WorkflowExecutor:
                 module_name=module_name,
             )
             spec = await self._modules.analyze(
-                module_name, description, context
+                module_name, description, context, mvp_mode=mvp_mode,
             )
 
             # ── 编码 + 测试 + 审查 循环（前 MAX_REVIEW_RETRIES 次正常重试） ──
@@ -1813,7 +1813,7 @@ class WorkflowExecutor:
                     module_name=module_name,
                 )
                 code = await self._modules.code(
-                    module_name, spec, feedback
+                    module_name, spec, feedback, mvp_mode=mvp_mode,
                 )
 
                 # 测试
@@ -1932,10 +1932,12 @@ class WorkflowExecutor:
                             logic_flow=spec_obj.get("logic_flow", ""),
                             error_handling=spec_obj.get("error_handling", ""),
                         )
-                    return await self._modules.code(mn, spec_obj, fb)
+                    return await self._modules.code(mn, spec_obj, fb, mvp_mode=mvp_mode)
 
                 async def _do_review(mn: str, summary: str, c: str, tc: str, retry: int):
-                    return await self._reviewer.review(mn, summary, c, tc, retry_count=retry)
+                    return await self._reviewer.review(
+                        mn, summary, c, tc, retry_count=retry, mvp_mode=mvp_mode,
+                    )
 
                 async def _do_repair(moutput: dict, hcases: list):
                     return await self._repair_agent.repair(moutput, hcases)

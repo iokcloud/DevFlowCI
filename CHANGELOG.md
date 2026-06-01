@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 
+## [0.4.5] - 2026-06-01
+
+### 修复
+- `extract_json` 支持截断/未闭合 JSON 补全，减少 coder 输出被截断即 blocked
+- 编码者使用 2× max_tokens + 最多 3 次 JSON 解析重试
+- MVP 模式下分析师/编码者附加单文件行数上限；Phase-1 技术需求禁止 SQLite/CLI
+
+[0.4.5]: https://github.com/iokcloud/DevFlowCI/releases/tag/v0.4.5
+
 ## [0.4.4] - 2026-06-01
 
 ### 新增

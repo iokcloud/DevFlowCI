@@ -1056,6 +1056,7 @@ def _build_business_tech_requirement(
             f"{f'里程碑：{milestone}。' if milestone else ''}"
             "请实现为一个可运行的 Python 模块（含 type hints、docstring、pytest 单元测试）。"
             "仅一个模块，不要拆分。"
+            "范围：单文件≤120行，只实现上述第一项核心能力，禁止 SQLite/CLI/多子系统。"
         )
         if exec_summary:
             tech_requirement = f"背景：{exec_summary[:300]}。{tech_requirement}"
@@ -1067,6 +1068,7 @@ def _build_business_tech_requirement(
             f"商业计划技术 MVP（单模块）：{focus[:500]}。"
             "请实现为一个可运行的 Python 模块（含 type hints、docstring、pytest 单元测试）。"
             "仅一个模块，不要拆分。"
+            "范围：单文件≤120行，只实现上述第一项核心能力，禁止 SQLite/CLI/多子系统。"
         )
         return tech_requirement, 1
 

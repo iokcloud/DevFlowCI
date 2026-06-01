@@ -332,14 +332,14 @@ async def test_execute_from_plan_multi_module_one_blocked_completes(
         "type": "backend",
     }
 
-    async def analyze_side_effect(module_name: str, description: str, context: str):
+    async def analyze_side_effect(module_name: str, description: str, context: str, **kwargs):
         return ModuleSpec(
             module_name=module_name,
             summary=description,
             api_endpoints=[f"POST /{module_name}"],
         )
 
-    async def code_side_effect(module_name: str, spec: ModuleSpec, feedback: str):
+    async def code_side_effect(module_name: str, spec: ModuleSpec, feedback: str, **kwargs):
         return ModuleCode(
             module_name=module_name,
             code=f"def {module_name}():\n    return '{module_name}'\n",

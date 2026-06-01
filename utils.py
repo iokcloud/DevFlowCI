@@ -22,10 +22,44 @@ from config import (
 )
 
 
+def _strip_json_fence(text: str) -> str:
+    """去掉 markdown 代码块围栏。"""
+    text = text.strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text)
+        text = re.sub(r"\s*```$", "", text)
+    return text.strip()
+
+
+def _try_parse_json_object(fragment: str) -> dict[str, Any] | None:
+    """尝试解析 JSON 对象，失败时尝试补全截断的括号/引号。"""
+    fragment = _strip_json_fence(fragment)
+    if not fragment.startswith("{"):
+        return None
+
+    candidates = [fragment]
+    # 截断响应：补闭合引号与花括号
+    for suffix in ('"', '"}', '"}', '"}]}', '"}]}', '"}]}'):
+        candidates.append(fragment + suffix)
+    open_braces = fragment.count("{") - fragment.count("}")
+    if open_braces > 0:
+        candidates.append(fragment + ('"' if fragment.count('"') % 2 else "") + "}" * open_braces)
+
+    for candidate in candidates:
+        try:
+            parsed = json.loads(candidate)
+            if isinstance(parsed, dict):
+                return parsed
+        except json.JSONDecodeError:
+            continue
+    return None
+
+
 def extract_json(text: str) -> dict[str, Any]:
     """从 LLM 回复中提取 JSON 对象。
 
-    会尝试多种策略：直接解析、提取 ```json 代码块、用正则找花括号区域。
+    会尝试多种策略：直接解析、提取 ```json 代码块、用正则找花括号区域、
+    补全截断 JSON。
 
     Args:
         text: LLM 返回的原始文本
@@ -39,33 +73,55 @@ def extract_json(text: str) -> dict[str, Any]:
     text = text.strip()
 
     # 策略 1：直接解析
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        pass
+    parsed = _try_parse_json_object(text)
+    if parsed is not None:
+        return parsed
 
-    # 策略 2：提取 ```json ... ``` 代码块
+    # 策略 2：非贪婪 ```json ... ``` 代码块
     match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", text)
     if match:
-        try:
-            return json.loads(match.group(1).strip())
-        except json.JSONDecodeError:
-            pass
+        parsed = _try_parse_json_object(match.group(1))
+        if parsed is not None:
+            return parsed
+
+    # 策略 2b：贪婪代码块（截断时可能没有闭合 ```）
+    greedy = re.search(r"```(?:json)?\s*([\s\S]*)", text)
+    if greedy:
+        parsed = _try_parse_json_object(greedy.group(1).rstrip("`"))
+        if parsed is not None:
+            return parsed
 
     # 策略 3：找到最外层 { }
     brace_start = text.find("{")
     if brace_start != -1:
         depth = 0
+        in_string = False
+        escape = False
         for i in range(brace_start, len(text)):
-            if text[i] == "{":
+            ch = text[i]
+            if in_string:
+                if escape:
+                    escape = False
+                elif ch == "\\":
+                    escape = True
+                elif ch == '"':
+                    in_string = False
+                continue
+            if ch == '"':
+                in_string = True
+            elif ch == "{":
                 depth += 1
-            elif text[i] == "}":
+            elif ch == "}":
                 depth -= 1
                 if depth == 0:
-                    try:
-                        return json.loads(text[brace_start : i + 1])
-                    except json.JSONDecodeError:
-                        break
+                    parsed = _try_parse_json_object(text[brace_start : i + 1])
+                    if parsed is not None:
+                        return parsed
+                    break
+
+        parsed = _try_parse_json_object(text[brace_start:])
+        if parsed is not None:
+            return parsed
 
     raise ValueError(f"无法从回复中提取有效 JSON。前 500 字符：{text[:500]}")
 

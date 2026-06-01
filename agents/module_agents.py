@@ -10,7 +10,15 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from memory.case_store import CaseStore
+from config import LLM_MAX_TOKENS
 from utils import create_llm, extract_json
+
+MVP_SCOPE_NOTE = """
+## MVP 范围（必须遵守）
+- 单文件代码不超过 120 行，测试代码不超过 80 行
+- 只实现一个核心函数或一个核心类，不要 SQLite/CLI/多子系统
+- 规格若过大，只取第一项能力实现
+"""
 
 
 # ── 数据结构 ──────────────────────────────────────────────
@@ -89,6 +97,7 @@ CODER_SYSTEM_PROMPT = """你是一位高级全栈开发工程师。你的任务�
 5. 不要使用 print()，使用 logging 模块。
 6. test_code 使用 pytest 风格，覆盖至少 2 个正常路径和 1 个异常路径。
 7. 输出必须是有效 JSON。代码内部的双引号用反斜杠转义。
+8. 若标注 MVP，遵守单文件行数上限，优先可运行的小实现。
 """
 
 TESTER_SYSTEM_PROMPT = """你是一位质量保证工程师。你的任务是审查代码和测试，判断是否通过。
@@ -133,9 +142,11 @@ class ModuleAgents:
     def __init__(self, case_store: CaseStore | None = None) -> None:
         self._case_store = case_store
         self._llm = create_llm()
+        self._coder_llm = create_llm(max_tokens=LLM_MAX_TOKENS * 2)
 
     async def analyze(
-        self, module_name: str, description: str, project_context: str = ""
+        self, module_name: str, description: str, project_context: str = "",
+        mvp_mode: bool = False,
     ) -> ModuleSpec:
         """分析师：生成模块功能规格。
 
@@ -151,7 +162,10 @@ class ModuleAgents:
         if self._case_store and self._case_store.count > 0:
             few_shot = self._case_store.format_few_shot(description, top_k=1)
 
+        mvp_section = MVP_SCOPE_NOTE if mvp_mode else ""
+
         prompt = f"""{ANALYST_SYSTEM_PROMPT}
+{mvp_section}
 
 {few_shot}
 
@@ -181,6 +195,7 @@ class ModuleAgents:
         module_name: str,
         spec: ModuleSpec,
         test_feedback: str = "",
+        mvp_mode: bool = False,
     ) -> ModuleCode:
         """编码者：根据规格编写代码。
 
@@ -203,23 +218,45 @@ API 端点：{', '.join(spec.api_endpoints)}
         if test_feedback:
             feedback_section = f"\n前次测试反馈（请修复以下问题）：\n{test_feedback}"
 
+        mvp_section = MVP_SCOPE_NOTE if mvp_mode else ""
+        compact_hint = (
+            "\n上次 JSON 输出过长或被截断，请输出更精简的实现（单文件≤120行）。"
+            if "JSON" in test_feedback or "截断" in test_feedback
+            else ""
+        )
+
         prompt = f"""{CODER_SYSTEM_PROMPT}
+{mvp_section}
+
+{spec_text}
+{feedback_section}{compact_hint}
+
+请输出上述 JSON 格式（module_name="{module_name}", language="python"）。"""
+
+        last_error: ValueError | None = None
+        for attempt in range(3):
+            response = await self._coder_llm.ainvoke(prompt)
+            raw_text = response.content if hasattr(response, "content") else str(response)
+            try:
+                data = extract_json(raw_text)
+                return ModuleCode(
+                    module_name=data.get("module_name", module_name),
+                    code=data.get("code", ""),
+                    test_code=data.get("test_code", ""),
+                    language=data.get("language", "python"),
+                )
+            except ValueError as exc:
+                last_error = exc
+                prompt = f"""{CODER_SYSTEM_PROMPT}
+{mvp_section}
 
 {spec_text}
 {feedback_section}
 
-请输出上述 JSON 格式（module_name="{module_name}", language="python"）。"""
+⚠️ 第 {attempt + 1} 次 JSON 解析失败：{exc}
+请重新输出完整、有效的 JSON；代码务必精简（单文件≤120行），确保 JSON 可闭合。"""
 
-        response = await self._llm.ainvoke(prompt)
-        raw_text = response.content if hasattr(response, "content") else str(response)
-        data = extract_json(raw_text)
-
-        return ModuleCode(
-            module_name=data.get("module_name", module_name),
-            code=data.get("code", ""),
-            test_code=data.get("test_code", ""),
-            language=data.get("language", "python"),
-        )
+        raise last_error or ValueError("编码 JSON 解析失败")
 
     async def test(
         self, module_name: str, code: ModuleCode, spec: ModuleSpec
