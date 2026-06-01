@@ -39,7 +39,25 @@ def test_business_plan_recommendations_fallback_single_module():
     assert "健康管理 App" in req
 
 
-def test_business_plan_empty_alignment_uses_multi_cap():
+def test_business_plan_empty_alignment_uses_config_cap():
     req, cap = _build_business_tech_requirement("仅原始需求", {})
-    assert cap == 3
+    assert cap == 1
     assert "MVP约束" in req
+
+
+def test_business_tech_preview_shape():
+    """预览 API 与 _build_business_tech_requirement 字段一致。"""
+    alignment = {
+        "plan_type": "business",
+        "executive_summary": "银发经济",
+        "roadmap": [{"phase": "MVP", "actions": ["健康录入原型"]}],
+    }
+    req, cap = _build_business_tech_requirement("市场调研", alignment)
+    preview = {
+        "tech_requirement": req,
+        "mvp_max_modules": cap,
+        "estimated_modules": cap,
+        "plan_type": "business",
+    }
+    assert preview["estimated_modules"] == 1
+    assert "健康录入原型" in preview["tech_requirement"]

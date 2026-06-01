@@ -510,6 +510,62 @@ async def get_ai_stream(project_id: str) -> StreamingResponse:
     )
 
 
+@app.get("/api/projects/{project_id}/business_tech_preview")
+async def business_tech_preview(project_id: str) -> dict[str, Any]:
+    """商业计划确认前预览：将生成的技术需求与预计模块数。
+
+    GET /api/projects/{project_id}/business_tech_preview
+    """
+    from database.db import async_session_factory
+    from sqlalchemy import select
+
+    async with async_session_factory() as db:
+        result = await db.execute(
+            select(Project).where(Project.project_id == project_id)
+        )
+        project = result.scalar_one_or_none()
+        if not project:
+            raise HTTPException(404, "项目不存在")
+
+        if project.status != ProjectStatus.ALIGNED:
+            raise HTTPException(400, "仅在对齐完成待确认（aligned）时可预览")
+
+        alignment_result = (
+            json.loads(project.alignment_json) if project.alignment_json else {}
+        )
+        if alignment_result.get("plan_type") != "business":
+            raise HTTPException(400, "当前项目不是商业计划模式")
+
+        tech_requirement, mvp_max_modules = _build_business_tech_requirement(
+            project.requirement, alignment_result
+        )
+        return {
+            "tech_requirement": tech_requirement,
+            "mvp_max_modules": mvp_max_modules,
+            "estimated_modules": mvp_max_modules,
+            "plan_type": "business",
+        }
+
+
+def _resolve_mvp_max_modules_from_project(
+    project: Project,
+    alignment_result: dict[str, Any],
+) -> int | None:
+    """从 alignment / 商业规则解析 MVP 模块上限。"""
+    stored = alignment_result.get("mvp_max_modules")
+    if stored is not None:
+        try:
+            return max(1, int(stored))
+        except (TypeError, ValueError):
+            pass
+    if alignment_result.get("plan_type") == "business":
+        _, cap = _build_business_tech_requirement(
+            project.requirement, alignment_result
+        )
+        return cap
+    return None
+
+
 @app.post("/api/projects/{project_id}/confirm_plan")
 async def confirm_plan(
     project_id: str,
@@ -552,13 +608,17 @@ async def confirm_plan(
 
             # ── 商业计划模式：确认后提取需求建议，继续走技术规划+开发管线 ──
             alignment_result = json.loads(project.alignment_json) if project.alignment_json else {}
-            mvp_max_modules = BUSINESS_MVP_MAX_MODULES
+            mvp_max_modules: int | None = None
             if alignment_result.get("plan_type") == "business":
                 original_requirement = project.requirement
                 tech_requirement, mvp_max_modules = _build_business_tech_requirement(
                     original_requirement, alignment_result
                 )
                 project.requirement = tech_requirement[:2000]
+                alignment_result["mvp_max_modules"] = mvp_max_modules
+                project.alignment_json = json.dumps(
+                    alignment_result, ensure_ascii=False
+                )
                 await push_log(
                     project_id, "INFO",
                     f"商业计划已确认，提取技术需求（MVP≤{mvp_max_modules}模块）："
@@ -591,8 +651,9 @@ async def confirm_plan(
                 "delivery_path": "",
                 "status": "planning",
                 "errors": [],
-                "mvp_max_modules": mvp_max_modules,
             }
+            if mvp_max_modules is not None:
+                state["mvp_max_modules"] = mvp_max_modules
 
             _register_task(project_id, _run_workflow_after_alignment(project_id, state))
             return {"status": "planning", "message": "需求对齐已确认，进入规划阶段"}
@@ -627,13 +688,20 @@ async def confirm_plan(
         project.status = ProjectStatus.EXECUTING
         await db.commit()
 
+        alignment_result = (
+            json.loads(project.alignment_json) if project.alignment_json else {}
+        )
+        mvp_max_modules = _resolve_mvp_max_modules_from_project(
+            project, alignment_result
+        )
+
     # 启动执行
     state: WorkflowState = {
         "project_id": project_id,
         "requirement": project.requirement,
         "directory": project.directory or "",
         "project_context": "",
-        "alignment_result": json.loads(project.alignment_json) if project.alignment_json else {},
+        "alignment_result": alignment_result,
         "alternative_alignment": None,
         "plan_json": project.plan_json or "",
         "plan_modules": (
@@ -650,6 +718,8 @@ async def confirm_plan(
         "status": "executing",
         "errors": [],
     }
+    if mvp_max_modules is not None:
+        state["mvp_max_modules"] = mvp_max_modules
 
     _register_task(project_id, _run_execution(project_id, state))
 

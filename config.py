@@ -121,7 +121,8 @@ ALIGNMENT_TIMEOUT_SECONDS: int = 300   # 对齐阶段等待用户确认超时（
 ALIGNMENT_ENABLE_MULTI_PLAN: bool = True  # 是否在需求对齐阶段生成多个方案供用户切换
 
 # ── 商业 MVP 配置 ─────────────────────────────────────────
-BUSINESS_MVP_MAX_MODULES: int = int(os.getenv("BUSINESS_MVP_MAX_MODULES", "3"))
+# 纯商业路径默认 Phase-1 单模块；可通过环境变量提高上限
+BUSINESS_MVP_MAX_MODULES: int = int(os.getenv("BUSINESS_MVP_MAX_MODULES", "1"))
 
 # ── 依赖推断配置 ──────────────────────────────────────────
 DEPENDENCY_INFERENCE_ENABLED: bool = True  # 是否启用依赖智能推断

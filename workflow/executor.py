@@ -178,6 +178,68 @@ def remove_log_queue(project_id: str) -> None:
     _log_queues.pop(project_id, None)
 
 
+async def push_module_event(
+    project_id: str,
+    module_name: str,
+    status: str,
+    *,
+    failure_reason: str = "",
+    description: str = "",
+) -> None:
+    """推送模块状态变更到 SSE，并同步写入 ModuleTask。"""
+    entry: dict[str, Any] = {
+        "project_id": project_id,
+        "level": "MODULE",
+        "message": f"[{module_name}] → {status}",
+        "module_name": module_name,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "module_event": {
+            "module_name": module_name,
+            "status": status,
+            "failure_reason": failure_reason,
+            "description": description,
+        },
+    }
+    queue = get_log_queue(project_id)
+    try:
+        queue.put_nowait(entry)
+    except asyncio.QueueFull:
+        pass
+
+    try:
+        from database.db import async_session_factory
+        from database.models import ModuleStatus, ModuleTask, Project
+        from sqlalchemy import select as _sel
+
+        async with async_session_factory() as db:
+            result = await db.execute(
+                _sel(Project).where(Project.project_id == project_id)
+            )
+            project = result.scalar_one_or_none()
+            if not project:
+                return
+            mod_result = await db.execute(
+                _sel(ModuleTask).where(
+                    ModuleTask.project_id_fk == project.id,
+                    ModuleTask.module_name == module_name,
+                )
+            )
+            mod = mod_result.scalar_one_or_none()
+            if not mod:
+                return
+            try:
+                mod.status = ModuleStatus(status)
+            except ValueError:
+                mod.status = ModuleStatus.CODING
+            if failure_reason:
+                mod.failure_reason = failure_reason[:2000]
+            if description:
+                mod.description = description[:1000]
+            await db.commit()
+    except Exception:
+        pass
+
+
 async def stream_logs(
     project_id: str
 ) -> AsyncIterator[dict[str, Any]]:
@@ -350,8 +412,33 @@ async def _persist_plan_modules(
                     )
                 )
             await db.commit()
+            for m in modules:
+                await push_module_event(
+                    project_id,
+                    m["module_name"],
+                    ModuleStatus.PENDING.value,
+                    description=m.get("description", ""),
+                )
     except Exception:
         pass
+
+
+async def _update_module_status(
+    project_id: str,
+    module_name: str,
+    status: str,
+    *,
+    failure_reason: str = "",
+    description: str = "",
+) -> None:
+    """更新模块执行态（SSE + DB）。"""
+    await push_module_event(
+        project_id,
+        module_name,
+        status,
+        failure_reason=failure_reason,
+        description=description,
+    )
 
 
 async def _persist_module_result(
@@ -417,34 +504,13 @@ async def _persist_module_result(
             mod.auto_fix_history = auto_fix
             mod.test_result = test_result_text
             await db.commit()
-    except Exception:
-        pass
 
-
-async def _mark_module_running(project_id: str, module_name: str) -> None:
-    """模块开始执行时标记为 coding。"""
-    try:
-        from database.db import async_session_factory
-        from database.models import ModuleStatus, ModuleTask, Project
-        from sqlalchemy import select as _sel
-
-        async with async_session_factory() as db:
-            result = await db.execute(
-                _sel(Project).where(Project.project_id == project_id)
-            )
-            project = result.scalar_one_or_none()
-            if not project:
-                return
-            mod_result = await db.execute(
-                _sel(ModuleTask).where(
-                    ModuleTask.project_id_fk == project.id,
-                    ModuleTask.module_name == module_name,
-                )
-            )
-            mod = mod_result.scalar_one_or_none()
-            if mod:
-                mod.status = ModuleStatus.CODING
-                await db.commit()
+        await push_module_event(
+            project_id,
+            module_name,
+            status_str,
+            failure_reason=result_data.get("failure_reason", "") or "",
+        )
     except Exception:
         pass
 
@@ -959,9 +1025,49 @@ def _resolve_mvp_module_cap(state: WorkflowState) -> int | None:
         except (TypeError, ValueError):
             pass
     alignment = state.get("alignment_result") or {}
-    if isinstance(alignment, dict) and alignment.get("plan_type") == "business":
-        return BUSINESS_MVP_MAX_MODULES
+    if isinstance(alignment, dict):
+        stored = alignment.get("mvp_max_modules")
+        if stored is not None:
+            try:
+                return max(1, int(stored))
+            except (TypeError, ValueError):
+                pass
+        if alignment.get("plan_type") == "business":
+            return BUSINESS_MVP_MAX_MODULES
     return None
+
+
+def _normalize_business_mvp_modules(
+    modules: list[dict[str, Any]],
+    state: WorkflowState,
+) -> list[dict[str, Any]]:
+    """商业 cap=1 时将 PM 产出合并为单模块，描述对齐已确认的技术需求。"""
+    cap = _resolve_mvp_module_cap(state)
+    if cap != 1 or len(modules) <= 1:
+        return modules
+    requirement = (state.get("requirement") or "").strip()
+    primary = modules[0]
+    name = primary.get("module_name") or primary.get("module") or "business_mvp"
+    desc = requirement[:600] if requirement else (primary.get("description") or name)
+    return [{
+        "module_name": name,
+        "description": desc,
+        "dependencies": [],
+        "type": primary.get("type", "backend"),
+    }]
+
+
+def _exec_tests_passed(exec_test_result: dict[str, Any] | None) -> bool:
+    """单元测试是否全部通过（用于 MVP 放宽）。"""
+    if not exec_test_result:
+        return False
+    mode = exec_test_result.get("execution_mode", "")
+    if mode in ("skipped", "error"):
+        return False
+    passed = int(exec_test_result.get("passed") or 0)
+    failed = int(exec_test_result.get("failed") or 0)
+    errors = int(exec_test_result.get("errors") or 0)
+    return passed > 0 and failed == 0 and errors == 0
 
 
 def _apply_mvp_module_cap(
@@ -1259,6 +1365,12 @@ class WorkflowExecutor:
                         f"\n\n【MVP硬性约束】最多拆解 {mvp_cap} 个模块，"
                         "请合并相近功能，优先最小可行产品。"
                     )
+                    if mvp_cap == 1:
+                        planning_context += (
+                            "\n【强制单模块】modules 数组必须恰好 1 个元素；"
+                            "description 只描述一个可运行的 Python 核心能力，"
+                            "禁止 SQLite/CLI/多子系统拆分。"
+                        )
 
                 await push_log(pid, "INFO", "🤔 PM Agent 正在分析需求，拆解模块结构...")
                 await _notify_ai_stream(pid, "planner", "start")
@@ -1313,6 +1425,7 @@ class WorkflowExecutor:
 
                 original_count = len(modules)
                 modules = _apply_mvp_module_cap(modules, state)
+                modules = _normalize_business_mvp_modules(modules, state)
                 if len(modules) < original_count:
                     await push_log(
                         pid, "INFO",
@@ -1778,7 +1891,7 @@ class WorkflowExecutor:
             f"[{module_name}] 开始执行",
             module_name=module_name,
         )
-        await _mark_module_running(pid, module_name)
+        await _update_module_status(pid, module_name, "analyzing")
         await _notify_ai_stream(pid, "module_agents", "start")
 
         try:
@@ -1806,6 +1919,7 @@ class WorkflowExecutor:
             for retry in range(MAX_REVIEW_RETRIES):
                 total_rounds += 1
 
+                await _update_module_status(pid, module_name, "coding")
                 # 编码
                 await push_log(
                     pid, "INFO",
@@ -1816,6 +1930,7 @@ class WorkflowExecutor:
                     module_name, spec, feedback, mvp_mode=mvp_mode,
                 )
 
+                await _update_module_status(pid, module_name, "testing")
                 # 测试
                 await push_log(
                     pid, "INFO",
@@ -1826,6 +1941,7 @@ class WorkflowExecutor:
                     module_name, code, spec
                 )
 
+                await _update_module_status(pid, module_name, "reviewing")
                 # 审查
                 await push_log(
                     pid, "INFO",
@@ -1841,14 +1957,22 @@ class WorkflowExecutor:
                     mvp_mode=mvp_mode,
                 )
 
+                exec_test_result: dict[str, Any] | None = None
+                if mvp_mode:
+                    exec_test_result = await self._run_module_test_and_log(
+                        pid, module_name, code.test_code,
+                    )
+
                 if review.passed:
+                    if exec_test_result is None:
+                        exec_test_result = await self._run_module_test_and_log(
+                            pid, module_name, code.test_code,
+                        )
                     await push_log(
                         pid, "SUCCESS",
                         f"[{module_name}] 审查通过 ✓",
                         module_name=module_name,
                     )
-                    # 执行实际测试
-                    exec_test_result = await self._run_module_test_and_log(pid, module_name, code.test_code)
                     state["module_results"][module_name] = {
                         "module_name": module_name,
                         "status": "passed",
@@ -1864,7 +1988,35 @@ class WorkflowExecutor:
                         "auto_fix_history": json.dumps(fix_history, ensure_ascii=False) if fix_history else "[]",
                     }
                     await _persist_module_result(pid, module_name, state["module_results"][module_name])
-                    # ★ 模块正常通过，清理相关错误日志
+                    try:
+                        from workflow.closed_loop import cleanup_after_fix
+                        await cleanup_after_fix(pid, module_name)
+                    except Exception:
+                        pass
+                    return
+
+                if mvp_mode and _exec_tests_passed(exec_test_result):
+                    await push_log(
+                        pid, "SUCCESS",
+                        f"[{module_name}] MVP 模式：单元测试通过，审查问题已降级放行",
+                        module_name=module_name,
+                    )
+                    state["module_results"][module_name] = {
+                        "module_name": module_name,
+                        "status": "passed",
+                        "spec": {
+                            "summary": spec.summary,
+                            "api_endpoints": spec.api_endpoints,
+                            "data_models": spec.data_models,
+                        },
+                        "code": code.code,
+                        "test_code": code.test_code,
+                        "test_result": exec_test_result,
+                        "retry_count": retry,
+                        "mvp_test_override": True,
+                        "auto_fix_history": json.dumps(fix_history, ensure_ascii=False) if fix_history else "[]",
+                    }
+                    await _persist_module_result(pid, module_name, state["module_results"][module_name])
                     try:
                         from workflow.closed_loop import cleanup_after_fix
                         await cleanup_after_fix(pid, module_name)
@@ -1897,6 +2049,7 @@ class WorkflowExecutor:
             # ── 异常自愈阶段（闭环修复：查询历史 → 修复 → 验证 → 重试）──
             if AUTO_FIX_ENABLED and code is not None and review is not None:
                 auto_fix_attempted = True
+                await _update_module_status(pid, module_name, "auto_fixing")
 
                 error_text = "\n".join(review.issues) if review and review.issues else failure_reason
                 error_type = classify_error(error_text)

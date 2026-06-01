@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+### 变更
+- 纯商业路径默认 Phase-1 单模块（`BUSINESS_MVP_MAX_MODULES` 默认 1）
+- 商业 `mvp_max_modules` 写入 alignment 并在 plan_ready 确认时传递到执行阶段
+- MVP 单模块：先跑 pytest，测试全绿可放行（即使审查 FAIL）
+- PM 规划 cap=1 时强制单模块 + 描述对齐技术需求
+
 ## [0.4.5] - 2026-06-01
 
 ### 修复

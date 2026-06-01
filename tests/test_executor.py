@@ -73,7 +73,29 @@ class TestHelpers:
         modules = [{"module_name": f"m{i}"} for i in range(6)]
         state = {"alignment_result": {"plan_type": "business"}}
         capped = _apply_mvp_module_cap(modules, state)
-        assert len(capped) == 3
+        assert len(capped) == 1
+
+    def test_normalize_business_mvp_modules(self):
+        from workflow.executor import _normalize_business_mvp_modules
+
+        modules = [
+            {"module_name": "a", "description": "big app", "type": "backend"},
+            {"module_name": "b", "description": "other", "type": "backend"},
+        ]
+        state = {
+            "mvp_max_modules": 1,
+            "requirement": "实现 validate_record(data) 函数",
+        }
+        out = _normalize_business_mvp_modules(modules, state)
+        assert len(out) == 1
+        assert "validate_record" in out[0]["description"]
+
+    def test_exec_tests_passed(self):
+        from workflow.executor import _exec_tests_passed
+
+        assert _exec_tests_passed({"passed": 2, "failed": 0, "errors": 0})
+        assert not _exec_tests_passed({"passed": 0, "failed": 1, "errors": 0})
+        assert not _exec_tests_passed(None)
 
     def test_apply_mvp_module_cap_explicit(self):
         modules = [{"module_name": f"m{i}"} for i in range(5)]
