@@ -14,6 +14,8 @@ from database.models import Project, ProjectStatus
 from workflow.executor import WorkflowExecutor, remove_log_queue
 from workflow.langgraph_def import WorkflowState
 
+pytestmark = pytest.mark.integration
+
 
 @pytest.fixture
 def project_id() -> str:

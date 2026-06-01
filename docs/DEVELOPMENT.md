@@ -91,15 +91,19 @@ python test_e2e.py
 ### 单元测试（无需启动服务）
 
 ```bash
+# 快测（与 PR CI 一致，50 项）
+pytest tests/ -m "not integration" -v
+
+# 全量（含 5 项集成测试，55 项）
 pytest tests/ -v
 ```
 
-覆盖 `workflow/auto_fix.py`、`memory/case_store.py`、`database/models.py`（32 项）。CI 在 push/PR 时自动运行，见 `.github/workflows/ci.yml`。
+CI 策略：PR 只跑 `-m "not integration"`；合并到 `master` 后额外跑集成测试。见 `.github/workflows/ci.yml`。
 
 集成测试（mock LLM，无需 API Key）：
 
 ```bash
-pytest tests/test_executor_integration.py -v
+pytest tests/ -m integration -v
 ```
 
 ### 分支保护（master）
