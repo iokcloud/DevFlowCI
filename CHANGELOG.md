@@ -4,6 +4,18 @@
 
 ## [Unreleased]
 
+## [0.4.4] - 2026-06-01
+
+### 新增
+- Reviewer MVP 模式：单模块交付时放宽审查标准
+- Weekly 商业 E2E 使用 `TEST_FLOW_BUSINESS_MODE=full`（纯商业 Phase-1，无 is_prime）
+
+### 变更
+- 商业确认后默认取 roadmap Phase-1 首项作为单模块技术 MVP（`cap=1`）
+- `test_flow_business.py` 支持 `TEST_FLOW_BUSINESS_MODE=smoke|full`
+
+[0.4.4]: https://github.com/iokcloud/DevFlowCI/releases/tag/v0.4.4
+
 ## [0.4.3] - 2026-06-01
 
 ### 新增

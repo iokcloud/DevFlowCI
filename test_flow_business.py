@@ -4,10 +4,11 @@
     python test_flow_business.py
 
 环境变量:
-    TEST_FLOW_BASE        API 基址（默认 http://127.0.0.1:8000）
-    TEST_FLOW_TIMEOUT     最大等待秒数（默认 900）
-    TEST_FLOW_POLL_SEC    轮询间隔（默认 4）
-    TEST_FLOW_HEARTBEAT   心跳输出间隔（默认 15）
+    TEST_FLOW_BASE              API 基址（默认 http://127.0.0.1:8000）
+    TEST_FLOW_TIMEOUT           最大等待秒数（默认 900）
+    TEST_FLOW_POLL_SEC          轮询间隔（默认 4）
+    TEST_FLOW_HEARTBEAT         心跳输出间隔（默认 15）
+    TEST_FLOW_BUSINESS_MODE     smoke（默认，含 is_prime 短路径）| full（纯商业 Phase-1）
 
 前置: 服务已启动，.env 中 DEEPSEEK_API_KEY 有效。
 """
@@ -37,10 +38,22 @@ TERMINAL = frozenset(
     {"completed", "failed", "needs_review", "cancelled", "completed_with_warnings"}
 )
 
-BUSINESS_REQUIREMENT = (
+BUSINESS_MODE = os.getenv("TEST_FLOW_BUSINESS_MODE", "smoke").strip().lower()
+
+BUSINESS_REQUIREMENT_SMOKE = (
     "基于市场调研：银发经济市场规模增长，竞争分析显示健康管理赛道机会，"
     "消费者付费意愿提升，订阅制营收模型可行。"
     "请给出简洁商业计划；技术 MVP 仅需一个 Python 函数 is_prime(n) 验证开发能力。"
+)
+
+BUSINESS_REQUIREMENT_FULL = (
+    "基于市场调研：银发经济市场规模增长，竞争分析显示健康管理赛道机会，"
+    "消费者付费意愿提升，订阅制营收模型可行。"
+    "请给出简洁商业计划，并聚焦第一阶段可交付的技术 MVP。"
+)
+
+BUSINESS_REQUIREMENT = (
+    BUSINESS_REQUIREMENT_FULL if BUSINESS_MODE == "full" else BUSINESS_REQUIREMENT_SMOKE
 )
 
 
@@ -93,7 +106,7 @@ def _alignment_plan_type(data: dict[str, Any]) -> str:
 async def main() -> int:
     print("=" * 60)
     print("DevFlow CI test_flow_business.py")
-    print(f"  超时: {TIMEOUT_S}s | 轮询: {POLL_SEC}s | 心跳: {HEARTBEAT_SEC}s")
+    print(f"  模式: {BUSINESS_MODE} | 超时: {TIMEOUT_S}s | 轮询: {POLL_SEC}s | 心跳: {HEARTBEAT_SEC}s")
     print("=" * 60)
 
     async with httpx.AsyncClient(timeout=httpx.Timeout(600, connect=10)) as client:

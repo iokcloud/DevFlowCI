@@ -1043,17 +1043,36 @@ def _build_business_tech_requirement(
     exec_summary = alignment_result.get("executive_summary", "")
     recommendations = alignment_result.get("recommendations", "")
     roadmap = alignment_result.get("roadmap", [])
+
+    # 纯商业：Phase 1 单模块 MVP（避免 PM 拆成多个抽象模块后全部 blocked）
+    if roadmap:
+        first = roadmap[0]
+        phase_name = first.get("phase", "第一阶段")
+        actions = first.get("actions") or []
+        milestone = (first.get("milestones") or [""])[0]
+        action_text = actions[0] if actions else (recommendations or exec_summary or "核心功能原型")
+        tech_requirement = (
+            f"商业计划「{phase_name}」技术 MVP：{action_text}。"
+            f"{f'里程碑：{milestone}。' if milestone else ''}"
+            "请实现为一个可运行的 Python 模块（含 type hints、docstring、pytest 单元测试）。"
+            "仅一个模块，不要拆分。"
+        )
+        if exec_summary:
+            tech_requirement = f"背景：{exec_summary[:300]}。{tech_requirement}"
+        return tech_requirement, 1
+
+    if recommendations or exec_summary:
+        focus = recommendations or exec_summary
+        tech_requirement = (
+            f"商业计划技术 MVP（单模块）：{focus[:500]}。"
+            "请实现为一个可运行的 Python 模块（含 type hints、docstring、pytest 单元测试）。"
+            "仅一个模块，不要拆分。"
+        )
+        return tech_requirement, 1
+
     parts: list[str] = []
     if exec_summary:
         parts.append(f"商业计划摘要：{exec_summary}")
-    if recommendations:
-        parts.append(f"后续开发建议：{recommendations}")
-    if roadmap:
-        phases_desc = "；".join(
-            f"阶段{i + 1}「{p.get('phase', '')}」: " + "、".join(p.get("actions", [])[:3])
-            for i, p in enumerate(roadmap[:3])
-        )
-        parts.append(f"路线图：{phases_desc}")
     tech_requirement = "。".join(parts) if parts else original_requirement
     tech_requirement += (
         f"。【MVP约束】本次仅实现最多 {BUSINESS_MVP_MAX_MODULES} 个核心模块，"

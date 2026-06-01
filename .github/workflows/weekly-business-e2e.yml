@@ -63,11 +63,12 @@ jobs:
           echo "Server failed to start"
           exit 1
 
-      - name: Run test_flow_business
+      - name: Run test_flow_business (full mode)
         if: steps.key.outputs.skip != 'true'
         env:
           TEST_FLOW_BASE: http://127.0.0.1:8000
           TEST_FLOW_TIMEOUT: "1800"
+          TEST_FLOW_BUSINESS_MODE: full
         run: python test_flow_business.py
 
       - name: Notify on failure
