@@ -1,15 +1,13 @@
 # 项目当前状态
 
 > 最后更新：2026-06-01（会话: 20260601-15）
-> 更新原因：V4 分 Agent 后 Pro/Flash multi E2E 对比验证
+> 更新原因：全 Pro 默认试跑 multi 通过（~2m16s）
 
 ## 基本信息
-- 当前阶段：**v0.4.7 已发布**（Unreleased → 待发 v0.4.8）
+- 当前阶段：**v0.4.7 已发布**（Unreleased：全 Pro 默认试验）
 - 最后完成的功能：
-  - ✅ V4 分 Agent：`create_llm_reasoning` / `create_llm_json` + SSE `project_snapshot`
-  - ✅ **Pro multi 连续 2 次通过**（~3m29s + ~2m32s，2/2 each）
-  - ✅ Flash multi 基准（`proj-e976cf570f96`，~2m05s，2/2 passed）
-  - ✅ Weekly Business E2E full + multi(cap=2)
+  - ✅ **全 Pro 默认** multi E2E（`proj-6ce35adfbf8b`，~2m16s，2/2）
+  - ✅ Pro multi 累计 3 次连续通过（分 Agent 配置下）
 - 正在进行的任务：无
 
 ## Multi E2E 模型对比（cap=2，本地）
@@ -29,9 +27,8 @@
 | Web UI | 93% | SSE snapshot + 轮询兜底 | |
 
 ## 生产模型建议
-- **CI / daily / multi 默认**：`DEEPSEEK_MODEL=deepseek-v4-flash`
-- **重要单模块 / 高质量 multi**：`deepseek-v4-pro` + `DEEPSEEK_REASONING_EFFORT=high`
-- **DevFlow 服务端 API**：OpenAI `/v1`（勿切 Anthropic，除非 Claude Code 外部工具）
+- **当前试验**：仓库默认 **`deepseek-v4-pro`**（全 Pro + 分 Agent）
+- Flash 仍可用于 CI 省成本：`DEEPSEEK_MODEL=deepseek-v4-flash`
 
 ## 下一步计划
 1. [ ] 发 **v0.4.8**（flash 默认 + 分 Agent + 文档）
