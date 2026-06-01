@@ -4,6 +4,24 @@
 
 ## [Unreleased]
 
+## [0.4.7] - 2026-06-01
+
+### 新增
+- `BUSINESS_MVP_MAX_MODULES>1` 多模块商业路径：从 Phase-1 生成多模块技术需求
+- `_sanitize_business_multi_modules`：cap>1 时强制 backend 轻量模块，避免 PM 产出前端/ML 导致全 blocked
+- `test_flow_business.py` 支持 `TEST_FLOW_BUSINESS_MODE=multi`
+- `.github/workflows/business-multi-e2e.yml`（手动触发，cap=2）
+
+### 变更
+- 商业多模块：pytest 全绿可放行（与单模块 MVP 门控一致）
+- `compact_mvp` 贯穿分析 / 编码 / 审查阶段
+- 多模块 E2E 验证上限设为 2 模块（cap=3 仍不稳定，不推荐生产默认）
+
+### 验证
+- Business Multi-Module E2E 通过（run 26761439750，2 模块 2 passed，约 2m31s）
+
+[0.4.7]: https://github.com/iokcloud/DevFlowCI/releases/tag/v0.4.7
+
 ## [0.4.6] - 2026-06-01
 
 ### 新增
