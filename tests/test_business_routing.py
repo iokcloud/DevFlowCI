@@ -45,6 +45,25 @@ def test_business_plan_empty_alignment_uses_config_cap():
     assert "MVP约束" in req
 
 
+def test_business_plan_multi_module_when_cap_three(monkeypatch):
+    monkeypatch.setattr("main.BUSINESS_MVP_MAX_MODULES", 3)
+    req, cap = _build_business_tech_requirement(
+        "市场规模分析",
+        {
+            "executive_summary": "银发经济",
+            "roadmap": [{
+                "phase": "MVP",
+                "actions": ["健康录入", "订阅计费", "社区互动"],
+            }],
+        },
+    )
+    assert cap == 3
+    assert "模块1" in req
+    assert "模块3" in req
+    assert "独立 Python 模块" in req
+    assert "仅一个模块" not in req
+
+
 def test_business_tech_preview_shape():
     """预览 API 与 _build_business_tech_requirement 字段一致。"""
     alignment = {
