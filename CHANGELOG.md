@@ -37,11 +37,16 @@
 - `pytest-asyncio` 依赖
 - `tests/test_error_logger.py`、`tests/test_executor.py`（路由、日志队列、DB 同步）
 - `scripts/stop_server.bat`、`scripts/install_hooks.bat`、`scripts/pre_commit_check.bat`
+- `tests/test_executor_integration.py`（5 项 mock LLM 集成测试）
+- `.github/pull_request_template.md`
 
 ### 变更
 - `docs/DEVELOPMENT.md`：单元测试说明、Windows 端口占用 FAQ、pre-commit 安装
 - `README.md`：CI 状态徽章
 - `CHANGELOG.md`：仓库链接改为 iokcloud/DevFlowCI
+
+### 修复
+- `get_error_stats`：`func.case` → `sqlalchemy.case`
 
 ## [0.2.0] - 2026-05-31
 

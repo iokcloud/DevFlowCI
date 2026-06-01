@@ -96,6 +96,12 @@ pytest tests/ -v
 
 覆盖 `workflow/auto_fix.py`、`memory/case_store.py`、`database/models.py`（32 项）。CI 在 push/PR 时自动运行，见 `.github/workflows/ci.yml`。
 
+集成测试（mock LLM，无需 API Key）：
+
+```bash
+pytest tests/test_executor_integration.py -v
+```
+
 提交前可选：
 
 ```bash

@@ -1,27 +1,27 @@
 # 项目当前状态
 
-> 最后更新：2026-06-01（会话: 20260601-04）
-> 更新原因：扩展单元测试、pre-commit 钩子、修复 error_logger SQL bug
+> 最后更新：2026-06-01（会话: 20260601-05）
+> 更新原因：WorkflowExecutor 集成测试（mock LLM）+ PR 模板
 
 ## 基本信息
-- 当前阶段：**v0.4.0 测试覆盖 + CI 已上线**
-- 当前 Sprint/目标：维护测试覆盖，按需扩展 executor 深度测试
+- 当前阶段：**v0.4.0 集成测试就绪**
+- 当前 Sprint/目标：协作流程完善（分支保护）；可选 memory_search
 - 最后完成的功能：
-  - ✅ GitHub 远程 `iokcloud/DevFlowCI` 已 push
-  - ✅ 单元测试扩展至 **50 项**（+ error_logger / executor）
-  - ✅ 修复 `get_error_stats` 中 `func.case` → `case` SQLAlchemy bug
-  - ✅ pre-commit 钩子安装脚本（`install_hooks.bat/.sh`）
-  - ✅ README CI 徽章、CHANGELOG 链接修正
+  - ✅ WorkflowExecutor 集成测试 5 项（mock LLM，无真实 API）
+  - ✅ 覆盖 aligned → plan_ready → completed 状态机
+  - ✅ `.github/pull_request_template.md`
+  - ✅ 单元 + 集成测试共 **55 项**
 - 正在进行的任务：无
 
 ## 模块完成度
 | 模块名称 | 完成度 | 测试覆盖 | 备注 |
 |----------|--------|----------|------|
 | 核心功能 v0.4 | 100% | E2E 冒烟 | test_flow 通过 |
-| 单元测试 | 90% | 50 tests | auto_fix / case_store / models / error_logger / executor |
+| 单元测试 | 95% | 50 unit tests | auto_fix / case_store / models / error_logger / executor |
+| 集成测试 | 80% | 5 integration | WorkflowExecutor mock LLM |
 | CI/CD | 100% | Actions | push 触发 pytest |
 
 ## 下一步计划
-1. [ ] 扩展 WorkflowExecutor 集成测试（mock LLM）
+1. [ ] GitHub 分支保护（Settings → Branches → require CI）
 2. [ ] memory_search.py
-3. [ ] 分支保护 + PR 模板（协作时）
+3. [ ] 可选：CI 中增加 integration 标记分组
