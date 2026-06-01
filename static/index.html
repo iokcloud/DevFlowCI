@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DevFlow CI — 项目型开发伙伴</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <header class="header">
+        <h1>🤖 DevFlow CI</h1>
+        <span class="subtitle">项目型开发伙伴 v0.4</span>
+        <span id="health-status" class="health">● 连接中...</span>
+    </header>
+
+    <div class="container">
+        <!-- 左侧面板：三段式 -->
+        <aside class="sidebar">
+            <!-- 1. 需求输入 -->
+            <section class="input-section">
+                <h2>📝 需求描述</h2>
+                <textarea
+                    id="requirement-input"
+                    placeholder="描述你想要构建或修改的项目...&#10;&#10;例如：添加用户认证功能，或修复登录页面样式问题。&#10;（留空则自动分析已有项目目录）"
+                    rows="5"
+                ></textarea>
+            </section>
+
+            <!-- 2. 项目目录选择 -->
+            <section class="dir-section">
+                <h2>📂 项目目录（选填）</h2>
+                <div id="dir-selector" class="dir-selector" title="点击浏览文件系统选择项目目录">
+                    <span class="dir-selector-icon">📁</span>
+                    <span class="dir-selector-text" id="dir-selector-text">点击选择项目目录...</span>
+                    <button type="button" id="btn-clear-dir" class="btn-clear-dir hidden" title="清除已选目录">&times;</button>
+                </div>
+                <div class="dir-hint">
+                    点击上方区域浏览并选择已有项目目录；不选择则为新项目。
+                </div>
+            </section>
+
+            <!-- 提交按钮 -->
+            <div style="display:flex;gap:8px;align-items:center;">
+                <select id="plan-mode-select" style="flex:0 0 auto;width:auto;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg);color:var(--text);font-size:0.85rem;cursor:pointer;">
+                    <option value="auto">🤖 自动判断</option>
+                    <option value="technical">💻 技术开发</option>
+                    <option value="business">📊 商业策划</option>
+                </select>
+                <button id="btn-submit" class="btn-primary" style="flex:1;">🚀 开始构建</button>
+            </div>
+            <button id="btn-new-project" class="btn-secondary hidden">＋ 新建项目</button>
+
+            <!-- 3. 历史项目列表 -->
+            <section class="history-section">
+                <h2>📋 历史项目</h2>
+                <div id="history-list" class="history-list">
+                    <div class="empty-state">暂无历史项目</div>
+                </div>
+            </section>
+        </aside>
+
+        <!-- 右侧主区域 -->
+        <main class="main">
+            <!-- 初始欢迎状态 -->
+            <div id="welcome-panel" class="welcome-panel">
+                <div class="welcome-icon">🚀</div>
+                <h2>欢迎使用 DevFlow CI</h2>
+                <p>在左侧输入需求或选择已有项目目录，<br>AI 将自动完成需求分析、方案规划、编码构建。</p>
+                <div class="welcome-features">
+                    <div class="welcome-feature">
+                        <span class="feature-icon">📝</span>
+                        <strong>描述需求</strong>
+                        <span>用自然语言描述你想构建什么</span>
+                    </div>
+                    <div class="welcome-feature">
+                        <span class="feature-icon">📂</span>
+                        <strong>选择目录</strong>
+                        <span>为已有项目添加新功能或修复问题</span>
+                    </div>
+                    <div class="welcome-feature">
+                        <span class="feature-icon">🤖</span>
+                        <strong>AI 自动执行</strong>
+                        <span>需求对齐 → 方案规划 → 编码 → 测试 → 交付</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 项目状态栏 -->
+            <div id="status-bar" class="status-bar hidden">
+                <div class="status-header">
+                    <h3 id="current-project-title"></h3>
+                    <div style="display:flex;align-items:center;gap:10px;">
+                        <button id="btn-back-to-form" class="btn-back" title="返回新建项目" onclick="resetToInitialState()">← 返回</button>
+                        <button id="btn-cancel-project" class="btn-cancel hidden" title="终止当前项目" onclick="cancelProject()">🛑 终止</button>
+                        <span id="current-status-badge" class="badge"></span>
+                    </div>
+                </div>
+                <div class="progress-bar-container">
+                    <div id="progress-bar" class="progress-bar"></div>
+                </div>
+                <div id="progress-text" class="progress-text"></div>
+                <!-- 四阶段指示器 -->
+                <div id="phase-stepper" class="phase-stepper">
+                    <div class="phase-step" data-phase="align">
+                        <span class="phase-dot">1</span>
+                        <span class="phase-label">需求对齐</span>
+                    </div>
+                    <div class="phase-connector"></div>
+                    <div class="phase-step" data-phase="plan">
+                        <span class="phase-dot">2</span>
+                        <span class="phase-label">方案规划</span>
+                    </div>
+                    <div class="phase-connector"></div>
+                    <div class="phase-step" data-phase="build">
+                        <span class="phase-dot">3</span>
+                        <span class="phase-label">模块构建</span>
+                    </div>
+                    <div class="phase-connector"></div>
+                    <div class="phase-step" data-phase="deliver">
+                        <span class="phase-dot">4</span>
+                        <span class="phase-label">集成交付</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 模块卡片 -->
+            <div id="modules-grid" class="modules-grid"></div>
+
+            <!-- 需求对齐面板（aligning 过渡动画 / aligned 确认页） -->
+            <div id="alignment-panel" class="alignment-panel hidden">
+                <h3>🎯 需求对齐</h3>
+                <div id="alignment-content"></div>
+            </div>
+
+            <!-- 方案对比面板（规划就绪时显示） -->
+            <div id="plan-comparison" class="plan-comparison hidden">
+                <h3>📋 方案对比</h3>
+                <div id="plan-comparison-content"></div>
+            </div>
+
+            <!-- 依赖清单面板 -->
+            <div id="dependency-panel" class="dependency-panel hidden">
+                <h3>📦 推断依赖</h3>
+                <div id="dependency-content"></div>
+            </div>
+
+            <!-- 版本树面板 -->
+            <div id="version-panel" class="version-panel hidden">
+                <h3>🌲 版本历史</h3>
+                <div id="version-content"></div>
+            </div>
+
+            <!-- 实时日志 -->
+            <div id="log-section" class="log-section hidden">
+                <h3>📜 实时日志</h3>
+                <div class="log-filter-row">
+                    <button class="log-filter-btn active" data-filter="all" onclick="setLogFilter('all')">全部</button>
+                    <button class="log-filter-btn" data-filter="test" onclick="setLogFilter('test')">仅测试</button>
+                    <button class="log-filter-btn" data-filter="warn" onclick="setLogFilter('warn')">⚠ 警告/错误</button>
+                </div>
+                <div id="log-container" class="log-container"></div>
+            </div>
+
+            <!-- 实时 AI 输出流面板 -->
+            <div id="ai-stream-section" class="ai-stream-section hidden">
+                <div class="ai-stream-header">
+                    <h3>🤖 实时 AI 输出</h3>
+                    <div class="ai-stream-controls">
+                        <span id="ai-stream-agent-tag" class="ai-agent-tag"></span>
+                        <button id="btn-ai-pause" class="ai-stream-btn" onclick="toggleAiPause()" title="暂停/继续">⏯️ 暂停</button>
+                        <button id="btn-ai-clear" class="ai-stream-btn" onclick="clearAiOutput()" title="清空">🗑️ 清空</button>
+                    </div>
+                </div>
+                <div id="ai-stream-container" class="ai-stream-container"></div>
+            </div>
+
+            <!-- 错误统计面板 -->
+            <div id="error-stats-section" class="error-stats-section hidden">
+                <h3>📊 系统状态 — 错误统计</h3>
+                <div id="error-stats-content" class="error-stats-content"></div>
+            </div>
+
+            <!-- 交付区域 -->
+            <div id="delivery-section" class="delivery-section hidden">
+                <h3>📦 交付物</h3>
+                <div id="delivery-content"></div>
+            </div>
+        </main>
+    </div>
+
+    <!-- 目录浏览器弹窗 -->
+    <div id="dir-browser-overlay" class="dir-browser-overlay hidden">
+        <div class="dir-browser-modal">
+            <div class="dir-browser-header">
+                <h3>📂 选择项目目录</h3>
+                <button id="btn-close-browser" class="btn-close" title="关闭">&times;</button>
+            </div>
+            <div class="dir-browser-body">
+                <!-- 左侧快速访问 -->
+                <nav class="dir-browser-sidebar" id="dir-browser-sidebar">
+                    <div class="sidebar-section-title">快速访问</div>
+                    <div id="quick-access-list"></div>
+                </nav>
+                <!-- 右侧主区域 -->
+                <div class="dir-browser-main">
+                    <div class="dir-browser-breadcrumb" id="dir-breadcrumb"></div>
+                    <div class="dir-browser-list" id="dir-browser-list">
+                        <div class="empty-state">加载中...</div>
+                    </div>
+                </div>
+            </div>
+            <div class="dir-browser-footer">
+                <span class="dir-selected-path" id="dir-selected-path"></span>
+                <button id="btn-confirm-dir" class="btn-primary" style="width:auto;padding:8px 24px;" disabled>✅ 选择此目录</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/request-queue.js"></script>
+    <script src="/static/app.js"></script>
+
+    <!-- 浮动上下文操作按钮 -->
+    <div id="floating-action" class="floating-action hidden">
+        <button id="btn-floating-action" class="btn-floating">确认计划</button>
+    </div>
+</body>
+</html>

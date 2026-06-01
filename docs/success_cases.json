@@ -1,0 +1,92 @@
+{
+  "version": "1.0.0",
+  "last_updated": "2026-06-01T09:31:04.911947+00:00",
+  "cases": [
+    {
+      "case_id": "case-0001",
+      "requirement": "Write a Python function is_prime(n: int) -> bool that checks if a number is prime. Include type hints and docstring.",
+      "plan": [
+        {
+          "module_name": "prime_checker",
+          "description": "实现 is_prime 函数，包含完整的类型提示（n: int）和 docstring，用于判断一个整数是否为质数",
+          "dependencies": [],
+          "type": "backend"
+        }
+      ],
+      "modules": [
+        {
+          "module_name": "prime_checker",
+          "description": "实现 is_prime 函数，包含完整的类型提示（n: int）和 docstring，用于判断一个整数是否为质数",
+          "spec": "实现 is_prime 函数，判断一个整数是否为质数，包含完整的类型提示与 docstring。",
+          "code": "import math\nimport logging\n\nlogger = logging.getLogger(__name__)\n\n\ndef is_prime(n: int) -> bool:\n    \"\"\"Determine if an integer is a prime number.\n\n    A prime number is a natural number greater than 1 that has no positive\n    divisors other than 1 and itself. This implementation uses trial division\n    up to the square root of `n`, optimized by checking divisibility by 2, 3,\n    and then numbers of the form 6k±1.\n\n    Args:\n        n: An integer to be tested for primality.\n\n    Returns:\n        True if `n` is a prime number, False otherwise.\n\n    Raises:\n        TypeError: If `n` is not an integer.\n    \"\"\"\n    if not isinstance(n, int):\n        logger.error(\"is_prime called with non-integer type %s\", type(n).__name__)\n        raise TypeError(f\"Expected int, got {type(n).__name__}\")\n\n    if n <= 1:\n        logger.debug(\"is_prime(%d) -> False (<=1)\", n)\n        return False\n    if n <= 3:\n        logger.debug(\"is_prime(%d) -> True (2 or 3)\", n)\n        return True\n    if n % 2 == 0 or n % 3 == 0:\n        logger.debug(\"is_prime(%d) -> False (divisible by 2 or 3)\", n)\n        return False\n\n    limit = math.isqrt(n)\n    for i in range(5, limit + 1, 6):\n        if n % i == 0 or n % (i + 2) == 0:\n            logger.debug(\"is_prime(%d) -> False (divisible by %d or %d)\", n, i, i + 2)\n            return False\n\n    logger.debug(\"is_prime(%d) -> True\", n)\n    return True\n",
+          "test_code": "import pytest\nfrom prime_checker import is_prime\n\n\ndef test_prime_small_primes():\n    \"\"\"Test known small prime numbers.\"\"\"\n    assert is_prime(2) is True\n    assert is_prime(3) is True\n    assert is_prime(5) is True\n    assert is_prime(17) is True\n    assert is_prime(19) is True\n    assert is_prime(7919) is True  # a larger prime\n\n\ndef test_prime_non_primes_and_edge_cases():\n    \"\"\"Test non-prime numbers and common edge cases.\"\"\"\n    # Numbers <= 1 (not prime)\n    assert is_prime(1) is False\n    assert is_prime(0) is False\n    assert is_prime(-1) is False\n    assert is_prime(-7) is False\n\n    # Composite numbers\n    assert is_prime(4) is False\n    assert is_prime(6) is False\n    assert is_prime(9) is False\n    assert is_prime(15) is False\n    assert is_prime(100) is False\n\n\ndef test_prime_invalid_input_raises_typeerror():\n    \"\"\"Test that non-integer inputs raise TypeError.\"\"\"\n    with pytest.raises(TypeError):\n        is_prime(3.14)\n    with pytest.raises(TypeError):\n        is_prime(\"abc\")\n    with pytest.raises(TypeError):\n        is_prime(None)\n    with pytest.raises(TypeError):\n        is_prime([2, 3])\n",
+          "status": "passed"
+        }
+      ],
+      "created_at": "2026-06-01T08:59:33.685994+00:00",
+      "keywords": [
+        "write",
+        "python",
+        "function",
+        "is",
+        "prime",
+        "int",
+        "bool",
+        "that",
+        "checks",
+        "if",
+        "number",
+        "is",
+        "prime",
+        "include",
+        "type",
+        "hints",
+        "and",
+        "docstring"
+      ]
+    },
+    {
+      "case_id": "case-0002",
+      "requirement": "Write a Python function is_prime(n: int) -> bool that checks if a number is prime. Include type hints and docstring.",
+      "plan": [
+        {
+          "module_name": "prime_checker",
+          "description": "实现判断质数的函数 is_prime(n: int) -> bool，包含完整的类型提示和 docstring",
+          "dependencies": [],
+          "type": "backend"
+        }
+      ],
+      "modules": [
+        {
+          "module_name": "prime_checker",
+          "description": "实现判断质数的函数 is_prime(n: int) -> bool，包含完整的类型提示和 docstring",
+          "spec": "提供 is_prime(n: int) -> bool 函数，判断整数是否为质数，包含类型提示与 docstring。",
+          "code": "import logging\nimport math\n\nlogger = logging.getLogger(__name__)\n\n\ndef is_prime(n: int) -> bool:\n    \"\"\"Determine if an integer is a prime number.\n\n    Args:\n        n: An integer to test.\n\n    Returns:\n        True if n is a prime number, else False.\n\n    Raises:\n        TypeError: If n is not an integer (implicitly from comparisons/operations).\n    \"\"\"\n    logger.debug(\"Checking primality of %s\", n)\n    if n < 2:\n        logger.debug(\"%s is less than 2, returning False\", n)\n        return False\n    if n in (2, 3):\n        logger.debug(\"%s is 2 or 3, returning True\", n)\n        return True\n    if n % 2 == 0:\n        logger.debug(\"%s is even, returning False\", n)\n        return False\n    limit = math.isqrt(n)\n    for i in range(3, limit + 1, 2):\n        if n % i == 0:\n            logger.debug(\"%s is divisible by %s, returning False\", n, i)\n            return False\n    logger.debug(\"%s is prime, returning True\", n)\n    return True\n",
+          "test_code": "import pytest\nfrom prime_checker import is_prime\n\n\ndef test_prime_two():\n    \"\"\"2 should be detected as prime.\"\"\"\n    assert is_prime(2) is True\n\n\ndef test_composite():\n    \"\"\"4 should be detected as composite.\"\"\"\n    assert is_prime(4) is False\n\n\ndef test_less_than_two():\n    \"\"\"Numbers less than 2 are not prime.\"\"\"\n    assert is_prime(0) is False\n    assert is_prime(-5) is False\n\n\ndef test_large_prime():\n    \"\"\"104729 is a known prime.\"\"\"\n    assert is_prime(104729) is True\n\n\ndef test_large_composite():\n    \"\"\"104730 is composite.\"\"\"\n    assert is_prime(104730) is False\n\n\ndef test_invalid_type():\n    \"\"\"Non-integer inputs should raise TypeError.\"\"\"\n    with pytest.raises(TypeError):\n        is_prime(\"abc\")\n    with pytest.raises(TypeError):\n        is_prime(3.14)\n",
+          "status": "passed"
+        }
+      ],
+      "created_at": "2026-06-01T09:31:04.911947+00:00",
+      "keywords": [
+        "write",
+        "python",
+        "function",
+        "is",
+        "prime",
+        "int",
+        "bool",
+        "that",
+        "checks",
+        "if",
+        "number",
+        "is",
+        "prime",
+        "include",
+        "type",
+        "hints",
+        "and",
+        "docstring"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,140 @@
+"""BusinessPlannerAgent — 商业智能分析师。
+
+基于市场调研、行业分析等商业文档生成商业项目计划建议书。
+仅在文档类型被识别为 business 时激活。
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from utils import create_llm, extract_json
+
+BUSINESS_PLANNER_PROMPT = """你是一位资深商业分析师与战略顾问。你的任务是基于提供的市场调研文档生成一份结构化的商业项目计划建议书。
+
+## 核心约束
+
+1. **文档优先**：你只能基于提供的文档摘要生成商业计划。不得凭空捏造市场数据、竞品信息或用户画像。
+2. **信息不足即声明**：如果文档信息不足以支撑某个部分，在对应字段注明"根据现有资料无法确定，建议补充XX调研"。
+3. **具体可操作**：all recommendations 必须具体到可以指导下一步行动的程度。
+
+## 输出格式（严格 JSON）
+
+```json
+{
+  "executive_summary": "300字以内的商业构想概述",
+  "market_analysis": {
+    "target_audience": "目标用户画像（基于文档数据）",
+    "competition": "竞争格局与差异化机会",
+    "trends": "相关行业趋势"
+  },
+  "product_positioning": "产品/服务定位与价值主张",
+  "business_model": {
+    "revenue_streams": ["收入来源1"],
+    "cost_structure": "主要成本构成",
+    "channels": ["销售/分发渠道"]
+  },
+  "roadmap": [
+    {
+      "phase": "阶段1名称",
+      "duration": "预计时长",
+      "actions": ["关键行动1"],
+      "milestones": ["里程碑"]
+    }
+  ],
+  "risks_and_mitigations": [
+    {
+      "risk": "风险描述",
+      "severity": "high|medium|low",
+      "mitigation": "对策"
+    }
+  ],
+  "recommendations": "后续建议，包括是否需要技术开发及大概方向"
+}
+```
+
+## 规则
+
+1. executive_summary 控制在300字内，覆盖：机会、目标市场、核心价值、商业模式概要。
+2. market_analysis 中的每个字段必须有文档数据支撑。
+3. roadmap 至少包含2个阶段，每个阶段有明确的 actions 和 milestones。
+4. 如果文档中明确提到数字（如"市场规模5万亿"），必须在计划中引用。
+5. 不要添加与文档无关的行业常识——比如文档讲银发经济但你没看到健康管理数据，就不要编造健康管理相关建议。
+"""
+
+
+class BusinessPlannerAgent:
+    """商业计划分析师。基于商业文档生成项目计划建议书。"""
+
+    def __init__(self) -> None:
+        self._llm = create_llm()
+
+    def _build_prompt(self, structured_context: dict[str, Any]) -> str:
+        parts: list[str] = [BUSINESS_PLANNER_PROMPT]
+
+        overall = structured_context.get("overall_summary", "")
+        if overall:
+            parts.append(f"## 📋 项目全局描述\n{overall}")
+
+        analyzed = structured_context.get("analyzed_files", [])
+        if analyzed:
+            parts.append(f"\n## 📄 文档摘要（共 {len(analyzed)} 个文件）")
+            for af in analyzed:
+                parts.append(f"\n### {af['file']}\n{af['summary']}")
+
+        parts.append("\n请严格基于以上文档内容，生成商业计划 JSON。")
+        return "\n\n".join(parts)
+
+    async def plan(
+        self,
+        structured_context: dict[str, Any],
+        project_memory_text: str = "",
+    ) -> dict[str, Any]:
+        """生成商业计划建议书（主入口方法）。
+
+        Args:
+            structured_context: 包含 analyzed_files + overall_summary 的上下文
+            project_memory_text: 项目记忆
+
+        Returns:
+            商业计划 JSON，格式见 BUSINESS_PLANNER_PROMPT
+        """
+        return await self.generate(structured_context, project_memory_text)
+
+    async def generate(
+        self,
+        structured_context: dict[str, Any],
+        project_memory_text: str = "",
+    ) -> dict[str, Any]:
+        """生成商业计划建议书（底层实现，与 plan() 等效）。
+
+        Args:
+            structured_context: 包含 analyzed_files + overall_summary 的上下文
+            project_memory_text: 项目记忆
+
+        Returns:
+            商业计划 JSON
+        """
+        prompt = self._build_prompt(structured_context)
+        if project_memory_text:
+            prompt += f"\n\n{project_memory_text}"
+
+        response = await self._llm.ainvoke(prompt)
+        raw_text: str = response.content if hasattr(response, "content") else str(response)
+        result = extract_json(raw_text)
+        return result
+
+    @staticmethod
+    def format_for_display(result: dict[str, Any]) -> dict[str, Any]:
+        """格式化为前端展示结构。"""
+        return {
+            "status": "ok",
+            "plan_type": "business",
+            "executive_summary": result.get("executive_summary", ""),
+            "market_analysis": result.get("market_analysis", {}),
+            "product_positioning": result.get("product_positioning", ""),
+            "business_model": result.get("business_model", {}),
+            "roadmap": result.get("roadmap", []),
+            "risks_and_mitigations": result.get("risks_and_mitigations", []),
+            "recommendations": result.get("recommendations", ""),
+        }
