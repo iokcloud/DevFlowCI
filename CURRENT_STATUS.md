@@ -22,6 +22,6 @@
 | CI/CD | 100% | Actions | push 触发 pytest |
 
 ## 下一步计划
-1. [ ] GitHub 分支保护（Settings → Branches → require CI）
+1. [x] GitHub 分支保护（master：CI `test` + PR，禁 force push）
 2. [ ] memory_search.py
 3. [ ] 可选：CI 中增加 integration 标记分组
