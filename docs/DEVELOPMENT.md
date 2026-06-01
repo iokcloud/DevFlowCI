@@ -102,6 +102,18 @@ pytest tests/ -v
 pytest tests/test_executor_integration.py -v
 ```
 
+### 分支保护（master）
+
+仓库已启用：CI 检查 `test` 必须通过 + 需通过 Pull Request 合并（无需他人 approve）。
+
+重新配置（需 `gh` + git 凭据）：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/setup_branch_protection.ps1
+```
+
+日常合并流程：新建分支 → push → `gh pr create` → CI 绿后 merge。
+
 提交前可选：
 
 ```bash
