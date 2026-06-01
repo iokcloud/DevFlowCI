@@ -35,6 +35,8 @@ python main.py
 
 浏览器访问：http://127.0.0.1:8000
 
+> 修改 `workflow/` 或 `main.py` 后请重启服务（Ctrl+C 后重新 `start.bat`），否则 E2E 测试可能仍跑旧逻辑。
+
 ## AI 协作会话
 
 ```bash
@@ -53,24 +55,32 @@ bash scripts/session_start.sh
 
 ### 前置条件
 
-1. 服务已启动（`python main.py`）
+1. **另开终端**启动服务：`start.bat` 或 `python main.py`
 2. `.env` 中已配置有效的 `DEEPSEEK_API_KEY`
 
 ### 冒烟测试（推荐）
 
 ```bash
+# Windows CMD / PowerShell（推荐，无需写 .exe 路径）
+scripts\test_flow.bat
+
+# 或激活 venv 后直接：
 python test_flow.py
 ```
 
-自动创建 is_prime 项目，并在 `aligned` / `plan_ready` 时自动确认。
+> **关于 `.exe` 后缀**：在 Windows 上 `python` 与 `python.exe` 等价（激活 venv 后均可）。
+> 不要写 `venv\Scripts\python.exe test_flow.py` 这类绝对路径——不是卡住的原因，但不便移植。
+> 若终端报编码错误，请用 `scripts\test_flow.bat`（已设 UTF-8）或 Git Bash。
+
+测试默认最长等待 **900 秒**（LLM 多轮调用较慢）。每 15 秒会输出心跳，状态不变不代表卡死。
+
+环境变量：`TEST_FLOW_TIMEOUT`、`TEST_FLOW_HEARTBEAT`、`TEST_FLOW_POLL_SEC`
 
 ### 完整 E2E
 
 ```bash
 python test_e2e.py
 ```
-
-包含简单需求、复杂需求、ZIP 下载验证三个场景。
 
 ## 目录约定
 

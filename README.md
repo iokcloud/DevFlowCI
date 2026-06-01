@@ -13,6 +13,7 @@
 | AI 协作 | [AI_COLLABORATION_GUIDE.md](AI_COLLABORATION_GUIDE.md) → [docs/MEMORY_INDEX.md](docs/MEMORY_INDEX.md) |
 | 架构 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
 | 编码规范 | [docs/CODING_STANDARDS.md](docs/CODING_STANDARDS.md) |
+| 变更记录 | [CHANGELOG.md](CHANGELOG.md) |
 
 ## 架构
 

@@ -1133,14 +1133,22 @@ def _write_delivery_plan(project_id: str, project: Any) -> None:
 async def _run_workflow_after_alignment(
     project_id: str, state: WorkflowState
 ) -> None:
-    """对齐确认后，继续执行：上下文分析 → 规划 → 确认 → 执行。"""
+    """对齐确认后，继续执行：上下文分析 → 规划 → 等待 plan_ready 确认。"""
     import traceback as _tb
+    final_state: WorkflowState | None = None
     try:
         final_state = await _executor.execute_after_alignment(state)
         await _save_state(project_id, final_state)
     except Exception as exc:
-        await push_log(project_id, "ERROR", f"工作流异常: {exc}")
+        err_msg = f"工作流异常: {exc}"
+        await push_log(project_id, "ERROR", err_msg)
         await push_log(project_id, "ERROR", _tb.format_exc())
+        try:
+            state["status"] = "needs_review"
+            state.setdefault("errors", []).append(err_msg)
+            await _save_state(project_id, state)
+        except Exception:
+            pass
     finally:
         await asyncio.sleep(5)
         remove_log_queue(project_id)
@@ -1166,7 +1174,11 @@ async def _save_state(project_id: str, final_state: WorkflowState) -> None:
             "aligned": ProjectStatus.ALIGNED,
             "plan_ready": ProjectStatus.PLAN_READY,
             "planning": ProjectStatus.PLANNING,
+            "executing": ProjectStatus.EXECUTING,
+            "integrating": ProjectStatus.INTEGRATING,
+            "reviewing": ProjectStatus.REVIEWING,
             "needs_review": ProjectStatus.NEEDS_REVIEW,
+            "cancelled": ProjectStatus.CANCELLED,
         }
         project.status = status_map.get(
             final_state.get("status", "failed"), ProjectStatus.FAILED
@@ -1239,11 +1251,21 @@ async def _run_workflow(
 
 async def _run_execution(project_id: str, state: WorkflowState) -> None:
     """后台：confirm_plan 后继续执行剩余阶段。"""
+    import traceback as _tb
+    final_state: WorkflowState | None = None
     try:
         final_state = await _executor.execute_from_plan(state)
         await _save_state(project_id, final_state)
-    except Exception:
-        pass
+    except Exception as exc:
+        err_msg = f"执行阶段异常: {exc}"
+        await push_log(project_id, "ERROR", err_msg)
+        await push_log(project_id, "ERROR", _tb.format_exc())
+        try:
+            state["status"] = "needs_review"
+            state.setdefault("errors", []).append(err_msg)
+            await _save_state(project_id, state)
+        except Exception:
+            pass
     finally:
         await asyncio.sleep(5)
         remove_log_queue(project_id)

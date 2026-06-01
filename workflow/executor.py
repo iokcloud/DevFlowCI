@@ -122,6 +122,11 @@ async def push_log(
     }
     if state_event:
         entry["state_event"] = state_event
+        # 状态事件实时同步到 DB，避免 API 长时间显示旧状态
+        try:
+            asyncio.create_task(_sync_project_status(project_id, state_event))
+        except Exception:
+            pass
     # 推送 SSE
     queue = get_log_queue(project_id)
     try:
@@ -307,6 +312,140 @@ async def _sync_project_status(project_id: str, status: str) -> None:
                 await db.commit()
     except Exception:
         pass  # 状态同步失败不阻塞主流程
+
+
+async def _persist_plan_modules(
+    project_id: str, plan_json: str, modules: list[dict[str, Any]]
+) -> None:
+    """规划完成后将模块列表写入 DB，供 API 轮询展示进度。"""
+    try:
+        from database.db import async_session_factory
+        from database.models import ModuleTask, ModuleStatus, Project
+        from sqlalchemy import delete as sql_delete
+        from sqlalchemy import select as _sel
+
+        async with async_session_factory() as db:
+            result = await db.execute(
+                _sel(Project).where(Project.project_id == project_id)
+            )
+            project = result.scalar_one_or_none()
+            if not project:
+                return
+            project.plan_json = plan_json
+            await db.execute(
+                sql_delete(ModuleTask).where(ModuleTask.project_id_fk == project.id)
+            )
+            for m in modules:
+                db.add(
+                    ModuleTask(
+                        project_id_fk=project.id,
+                        module_name=m["module_name"],
+                        description=m.get("description", ""),
+                        dependencies=json.dumps(
+                            m.get("dependencies", []), ensure_ascii=False
+                        ),
+                        module_type=m.get("type", "backend"),
+                        status=ModuleStatus.PENDING,
+                    )
+                )
+            await db.commit()
+    except Exception:
+        pass
+
+
+async def _persist_module_result(
+    project_id: str, module_name: str, result_data: dict[str, Any]
+) -> None:
+    """单个模块完成后增量写入 DB，供 test_flow / 前端实时展示。"""
+    try:
+        from database.db import async_session_factory
+        from database.models import ModuleStatus, ModuleTask, Project
+        from sqlalchemy import select as _sel
+
+        status_str = result_data.get("status", "failed")
+        try:
+            mod_status = ModuleStatus(status_str)
+        except ValueError:
+            mod_status = ModuleStatus.FAILED
+
+        spec = result_data.get("spec", {})
+        if isinstance(spec, dict):
+            spec_text = json.dumps(spec, ensure_ascii=False)
+        else:
+            spec_text = str(spec)
+
+        auto_fix = result_data.get("auto_fix_history", "[]")
+        if not isinstance(auto_fix, str):
+            auto_fix = json.dumps(auto_fix, ensure_ascii=False)
+
+        test_result = result_data.get("test_result")
+        test_result_text = (
+            json.dumps(test_result, ensure_ascii=False)
+            if test_result
+            else None
+        )
+
+        async with async_session_factory() as db:
+            result = await db.execute(
+                _sel(Project).where(Project.project_id == project_id)
+            )
+            project = result.scalar_one_or_none()
+            if not project:
+                return
+            mod_result = await db.execute(
+                _sel(ModuleTask).where(
+                    ModuleTask.project_id_fk == project.id,
+                    ModuleTask.module_name == module_name,
+                )
+            )
+            mod = mod_result.scalar_one_or_none()
+            if not mod:
+                mod = ModuleTask(
+                    project_id_fk=project.id,
+                    module_name=module_name,
+                    description=result_data.get("description", module_name),
+                    status=mod_status,
+                )
+                db.add(mod)
+            mod.status = mod_status
+            mod.code = result_data.get("code", "") or ""
+            mod.tests = result_data.get("test_code", "") or ""
+            mod.spec = spec_text
+            mod.retry_count = result_data.get("retry_count", 0)
+            mod.failure_reason = result_data.get("failure_reason", "") or ""
+            mod.auto_fix_history = auto_fix
+            mod.test_result = test_result_text
+            await db.commit()
+    except Exception:
+        pass
+
+
+async def _mark_module_running(project_id: str, module_name: str) -> None:
+    """模块开始执行时标记为 coding。"""
+    try:
+        from database.db import async_session_factory
+        from database.models import ModuleStatus, ModuleTask, Project
+        from sqlalchemy import select as _sel
+
+        async with async_session_factory() as db:
+            result = await db.execute(
+                _sel(Project).where(Project.project_id == project_id)
+            )
+            project = result.scalar_one_or_none()
+            if not project:
+                return
+            mod_result = await db.execute(
+                _sel(ModuleTask).where(
+                    ModuleTask.project_id_fk == project.id,
+                    ModuleTask.module_name == module_name,
+                )
+            )
+            mod = mod_result.scalar_one_or_none()
+            if mod:
+                mod.status = ModuleStatus.CODING
+                await db.commit()
+    except Exception:
+        pass
 
 
 # ── 上下文分析 ────────────────────────────────────────────
@@ -1178,6 +1317,9 @@ class WorkflowExecutor:
                 state["status"] = "plan_ready"
                 # ★ 同步更新数据库状态，避免API显示滞后
                 await _sync_project_status(pid, "plan_ready")
+                await _persist_plan_modules(
+                    pid, state["plan_json"], modules
+                )
                 return state
 
             except Exception as exc:
@@ -1237,6 +1379,7 @@ class WorkflowExecutor:
 
             # ── 阶段2：集成 ──
             await push_log(pid, "STATE", "integrating", state_event="integrating")
+            await _sync_project_status(pid, "integrating")
             await push_log(pid, "INFO", "🔗 进入集成阶段，组装项目...")
             state = await self._execute_integrate_with_retry(pid, state)
             await push_log(pid, "SUCCESS", "✅ 集成完成")
@@ -1270,6 +1413,7 @@ class WorkflowExecutor:
 
             # ── 全局审查（带重试） ──
             await push_log(pid, "STATE", "reviewing", state_event="reviewing")
+            await _sync_project_status(pid, "reviewing")
             await push_log(pid, "INFO", "🔍 进入全局审查阶段...")
             state = await self._execute_global_review_with_retry(pid, state)
             review_data = state.get("global_review", {})
@@ -1397,14 +1541,12 @@ class WorkflowExecutor:
         return state
 
     async def execute_after_alignment(self, state: WorkflowState) -> WorkflowState:
-        """从对齐确认后继续：上下文分析 + 规划 + 执行。
+        """从对齐确认后继续：上下文分析 + 规划。
 
-        用于 confirm_plan（aligned 状态）后继续执行。
+        在 plan_ready 停止，等待用户 confirm_plan 后再执行（由 _run_execution 驱动）。
         """
         state = await self.execute_context_analysis(state)
         state = await self.plan_only(state)
-        if state["status"] == "plan_ready":
-            state = await self.execute_from_plan(state)
         return state
 
     async def _execute_integrate_with_retry(
@@ -1427,7 +1569,7 @@ class WorkflowExecutor:
                 }
                 # 推送集成摘要
                 await _notify_ai_stream(pid, "integrator", "token",
-                    integration.project_structure[:1000] if integration.project_structure else "")
+                    str(integration.project_structure or "")[:1000])
                 await _notify_ai_stream(pid, "integrator", "done")
                 await push_log(pid, "SUCCESS", "项目集成完成")
                 return state
@@ -1592,6 +1734,7 @@ class WorkflowExecutor:
             f"[{module_name}] 开始执行",
             module_name=module_name,
         )
+        await _mark_module_running(pid, module_name)
         await _notify_ai_stream(pid, "module_agents", "start")
 
         try:
@@ -1675,6 +1818,7 @@ class WorkflowExecutor:
                         "retry_count": retry,
                         "auto_fix_history": json.dumps(fix_history, ensure_ascii=False) if fix_history else "[]",
                     }
+                    await _persist_module_result(pid, module_name, state["module_results"][module_name])
                     # ★ 模块正常通过，清理相关错误日志
                     try:
                         from workflow.closed_loop import cleanup_after_fix
@@ -1815,6 +1959,7 @@ class WorkflowExecutor:
                         "retry_count": total_rounds,
                         "auto_fix_history": json.dumps(loop_result.fix_history, ensure_ascii=False),
                     }
+                    await _persist_module_result(pid, module_name, state["module_results"][module_name])
                     return
 
                 # 闭环修复未成功，更新代码引用
@@ -1850,6 +1995,7 @@ class WorkflowExecutor:
                 "auto_fix_history": json.dumps(fix_history, ensure_ascii=False) if fix_history else "[]",
             }
             state["module_results"][module_name] = result_data
+            await _persist_module_result(pid, module_name, result_data)
 
         except Exception as exc:
             await push_log(
@@ -1870,6 +2016,7 @@ class WorkflowExecutor:
                 "failure_reason": str(exc),
                 "auto_fix_history": "[]",
             }
+            await _persist_module_result(pid, module_name, state["module_results"][module_name])
 
     def _collect_module_info(
         self, state: WorkflowState

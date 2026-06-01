@@ -350,6 +350,29 @@
 
 ---
 
+## 决策 #019：E2E 测试与工作流可观测性加固
+
+- **日期**：2026-06-01
+- **状态**：已采纳
+- **上下文**：`test_flow.py` 被误判为卡死：长时间无输出、超时过短、模块进度不可见、工作流异常后 DB 状态不更新。集成阶段 `project_structure[:1000]` 对非字符串类型报错。
+- **方案对比**：
+
+  | 方案 | 优点 | 缺点 |
+  |------|------|------|
+  | A. 仅加长 test_flow 超时 | 改动最小 | 不解决进度不可见和异常僵死 |
+  | B. 测试脚本 + 后端持久化 + 异常回写（本方案） | 根因修复，前端/API/测试均受益 | 改动面稍大 |
+
+- **选择**：方案 B —
+  1. test_flow：心跳、900s 默认超时、UTF-8、confirm 去重
+  2. executor：plan/module 增量持久化；state_event 同步 DB
+  3. main.py：`_run_workflow_after_alignment` / `_run_execution` 异常写入 needs_review
+  4. integrator 流式输出：`str(project_structure)[:1000]`
+  5. `execute_after_alignment` 在 plan_ready 停止，由第二次 confirm 驱动执行
+- **影响**：test_flow.py、executor.py、main.py、docs/LEARNINGS.md（教训 #002）
+- **风险/代价**：修改 backend 后需重启 uvicorn（`--reload` 有时延迟）；E2E 全流程仍依赖 LLM 耗时常达 5–10 分钟。
+
+---
+
 > **模板 — 新决策请复制以下结构**：
 >
 > ```markdown

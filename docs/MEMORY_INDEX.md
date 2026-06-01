@@ -32,6 +32,7 @@
 | 成功案例 | `docs/success_cases.json` | `success_cases.json` → 指针 |
 | 系统架构 | `docs/ARCHITECTURE.md` | — |
 | 编码规范 | `docs/CODING_STANDARDS.md` | — |
+| 变更记录 | `CHANGELOG.md` | — |
 | 缺陷追踪 | `BUG_TRACKER.md` | — |
 | 会话归档 | `sessions/<YYYYMMDD-NN>/summary.md` | — |
 

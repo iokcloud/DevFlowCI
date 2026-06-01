@@ -103,8 +103,11 @@ Bug 发生 → 修复 → 提取根因 → 写入 LEARNINGS.md
 | 4 | `docs/success_cases.json` | 成功交付的模式库，含代码片段指纹 | AI（自动）/ 人类（确认） | 每次成功完成一个可复用功能模块后 |
 | 5 | `docs/AGENT_PROMPT_TEMPLATES.md` | 面向不同任务类型的 AI 提示词模板 | AI（建议）/ 人类（审核） | 发现某类任务的 Prompt 模式奏效后；审查打回暴露出 Prompt 缺陷后 |
 | 6 | `docs/ARCHITECTURE.md` | 系统架构图、模块关系、技术栈说明 | AI（起草）/ 人类（审核） | 架构变更时；新模块引入时 |
-| 7 | `docs/CODING_STANDARDS.md` | 项目级编码规范（语言特有规则） | 人类（定义）/ AI（遵守&建议） | 人类发现 AI 代码风格不符合预期时 |
-| 8 | `sessions/` | 按 session-id 归档的所有会话总结 | AI（自动） | 每次会话结束 |
+| 7 | `docs/CODING_STANDARDS.md` | 项目级编码规范 | 人类（定义）/ AI（遵守） | 人类发现风格不符合预期时 |
+| 8 | `docs/MEMORY_INDEX.md` | 记忆文件索引与读取顺序 | AI | 记忆体系变更时 |
+| 9 | `BUG_TRACKER.md` | 已知缺陷追踪 | AI / 人类 | 发现/修复 Bug 时 |
+| 10 | `COLLABORATION_PROMPT.md` | AI 行为准则（精简版） | 人类 | 协作规则变更时 |
+| 11 | `sessions/` | 按 session-id 归档的会话总结 | AI | 每次会话结束 |
 
 ### 2.2 各文件详细规范
 
@@ -180,31 +183,25 @@ Bug 发生 → 修复 → 提取根因 → 写入 LEARNINGS.md
 
 #### 2.2.4 docs/success_cases.json
 
-**格式**（JSON Schema）：
+**格式**（与 `memory/case_store.py` 实际存储一致）：
 ```json
 {
   "version": "1.0.0",
+  "last_updated": "2026-06-01T00:00:00+00:00",
   "cases": [
     {
-      "id": "case-001",
-      "title": "实现 CI 任务队列",
-      "date": "2026-05-31",
-      "category": "feature",
-      "pattern": "生产者-消费者模式 + Redis Streams",
-      "files_modified": ["src/queue/producer.py", "src/queue/consumer.py"],
-      "prompt_keywords": ["任务队列", "异步处理", "消息队列"],
-      "success_metrics": {
-        "review_rounds": 1,
-        "bugs_found": 0,
-        "lines_of_code": 250
-      },
-      "reusable_pattern_snippet": "src/queue/producer.py#L12-L45"
+      "case_id": "case-0001",
+      "requirement": "用户需求原文",
+      "plan": [{"module_name": "...", "description": "...", "dependencies": [], "type": "backend"}],
+      "modules": [{"module_name": "...", "code": "...", "test_code": "...", "status": "passed"}],
+      "created_at": "2026-06-01T00:00:00+00:00",
+      "keywords": ["关键词1", "关键词2"]
     }
   ]
 }
 ```
 
-**更新触发**：当一个功能模块通过人类审查且运行稳定 3 天以上后，AI 应提议将其提取到 success_cases.json。
+**说明**：权威路径为 `docs/success_cases.json`（`config.SUCCESS_CASES_FILE`）。根目录 `success_cases.json` 为指针文件。
 
 #### 2.2.5 docs/AGENT_PROMPT_TEMPLATES.md
 
@@ -239,14 +236,17 @@ Bug 发生 → 修复 → 提取根因 → 写入 LEARNINGS.md
 
 ```
 步骤 1：读取本文件（AI_COLLABORATION_GUIDE.md）      —— 了解协作规则
-步骤 2：读取 CURRENT_STATUS.md                      —— 了解项目现状
-步骤 3：读取 docs/ARCHITECTURE.md                   —— 了解技术架构（如存在）
-步骤 4：读取 docs/CODING_STANDARDS.md               —— 了解编码规范（如存在）
-步骤 5：读取 docs/LEARNINGS.md（最近 20 条）         —— 了解历史教训
-步骤 6：读取 docs/AGENT_PROMPT_TEMPLATES.md          —— 了解当前任务匹配的模板
-步骤 7：读取 docs/decisions.md（最近 30 天）         —— 了解近期决策
-步骤 8：读取 docs/success_cases.json                —— 了解可复用模式
-步骤 9：确认当前会话任务目标                          —— 与人类对齐
+步骤 2：读取 COLLABORATION_PROMPT.md（精简准则）     —— 了解 AI 宪法
+步骤 3：读取 CURRENT_STATUS.md                      —— 了解项目现状
+步骤 4：读取 docs/MEMORY_INDEX.md                   —— 确认记忆文件路径
+步骤 5：读取 docs/ARCHITECTURE.md                   —— 了解技术架构
+步骤 6：读取 docs/CODING_STANDARDS.md               —— 了解编码规范
+步骤 7：读取 docs/LEARNINGS.md（最近 20 条）         —— 了解历史教训
+步骤 8：读取 docs/AGENT_PROMPT_TEMPLATES.md          —— 了解当前任务匹配的模板
+步骤 9：读取 docs/decisions.md（最近 30 天）         —— 了解近期决策
+步骤 10：读取 docs/success_cases.json               —— 了解可复用模式
+步骤 11：读取 sessions/<最新>/summary.md             —— 了解上次会话产出
+步骤 12：确认当前会话任务目标                          —— 与人类对齐
 ```
 
 **前置条件**：如果步骤 2-8 中某些文件尚不存在，AI 应明确告知人类"该记忆文件尚未初始化"，并在本次会话中留意是否有机会创建。
@@ -763,10 +763,11 @@ echo "  - 安全敏感操作"
 |------|----------|------|------|
 | **Phase 1**（立即） | 记忆文件骨架 | 创建所有 §2.1 中列出的文件 | 本指南 |
 | **Phase 1**（立即） | 会话启动/结束仪式 | AI 按 §3.1 和 §3.3 执行 | 记忆文件存在 |
-| **Phase 2**（1-2 周） | session_start.sh | 会话启动自动化脚本 | phase 1 稳定 |
-| **Phase 2**（1-2 周） | pre-commit 钩子 | 阻断级自检自动化 | 项目有代码后 |
+| **Phase 2**（✅ 2026-06-01） | session_start/end.sh/.bat | 会话启动与质量检查自动化 | phase 1 稳定 |
+| **Phase 2**（✅ 2026-06-01） | test_flow.bat + 心跳测试 | E2E 冒烟脚本不再假卡住 | phase 1 稳定 |
+| **Phase 2**（进行中） | pre-commit 钩子 | 阻断级自检自动化 | scripts/pre_commit_check.sh |
 | **Phase 3**（1 个月） | memory_search.py | 记忆检索 CLI | 记忆条目 > 20 |
-| **Phase 3**（1 个月） | session_quality.py | 会话质量评分 | 3+ 次会话完成 |
+| **Phase 3**（✅ 2026-06-01） | session_end.sh 质量检查 | 会话结束质量评分（0–100） | 3+ 次会话完成 |
 | **Phase 4**（2 个月+） | 经验自动聚类 | 从 LEARNINGS.md 中自动发现高频模式 | 教训条目 > 50 |
 | **Phase 4**（2 个月+） | Prompt 自动调优 | 基于审查重试数据自动优化 Prompt 模板 | 审查数据 > 20 |
 | **Long-term** | CI 集成记忆验证 | CI 流程中自动检查记忆文件是否过期 | 项目 CI 就绪 |
