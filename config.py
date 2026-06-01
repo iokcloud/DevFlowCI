@@ -65,6 +65,9 @@ DATABASE_URL: str = os.getenv(
 
 # ── 工作流配置 ────────────────────────────────────────────
 MAX_REVIEW_RETRIES: int = 5        # 单个模块审查最大重试次数（永不卡死策略：提高到5次）
+MAX_CODE_READINESS_RETRIES: int = int(
+    os.getenv("MAX_CODE_READINESS_RETRIES", "2")
+)  # 每轮审查前编码就绪校验重试（截断/语法未通过时不进入测试/审查）
 MAX_CONCURRENT_MODULES: int = 4    # 并行模块数上限
 TASK_TIMEOUT_SECONDS: int = 600    # 单个模块超时（10分钟）
 MAX_NON_MODULE_RETRIES: int = 3    # 非模块阶段（规划/集成/全局审查）最大重试次数

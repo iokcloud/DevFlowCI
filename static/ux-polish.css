@@ -1,0 +1,462 @@
+/* ── DevFlow UX Polish: 可观测性 · 呼吸动效 · 阶段过渡 ── */
+
+:root {
+    --ux-ease: cubic-bezier(0.4, 0, 0.2, 1);
+    --ux-glow: rgba(88, 166, 255, 0.45);
+    --ux-success-glow: rgba(63, 185, 80, 0.4);
+}
+
+/* 状态徽章呼吸 */
+.badge.pulse-badge {
+    animation: uxBadgeBreathe 2.2s ease-in-out infinite;
+}
+
+@keyframes uxBadgeBreathe {
+    0%, 100% { box-shadow: 0 0 0 0 transparent; }
+    50% { box-shadow: 0 0 0 3px var(--ux-glow); }
+}
+
+.status-hint {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    margin-top: 6px;
+    line-height: 1.45;
+    min-height: 1.2em;
+    transition: opacity 0.35s var(--ux-ease);
+}
+
+.status-hint.action-needed {
+    color: var(--accent);
+    font-weight: 500;
+}
+
+.active-agent-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.72rem;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgba(88, 166, 255, 0.12);
+    border: 1px solid rgba(88, 166, 255, 0.35);
+    color: var(--accent);
+    animation: uxAgentBreathe 2s ease-in-out infinite;
+}
+
+.active-agent-badge .agent-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
+    animation: uxDotPulse 1.4s ease-in-out infinite;
+}
+
+@keyframes uxAgentBreathe {
+    0%, 100% { opacity: 0.92; }
+    50% { opacity: 1; box-shadow: 0 0 12px var(--ux-glow); }
+}
+
+@keyframes uxDotPulse {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.35); opacity: 0.65; }
+}
+
+/* 可观测性流水线 */
+.observability-rail {
+    margin-top: 12px;
+    padding: 10px 4px 4px;
+    border-top: 1px solid var(--border);
+}
+
+.obs-track {
+    display: flex;
+    align-items: flex-start;
+    gap: 0;
+    overflow-x: auto;
+    padding-bottom: 4px;
+}
+
+.obs-node {
+    flex: 1;
+    min-width: 52px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    position: relative;
+    opacity: 0.35;
+    transition: opacity 0.4s var(--ux-ease), transform 0.35s var(--ux-ease);
+}
+
+.obs-node.done {
+    opacity: 0.75;
+}
+
+.obs-node.active {
+    opacity: 1;
+    transform: translateY(-2px);
+}
+
+.obs-node-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--border);
+    border: 2px solid var(--bg-card);
+    z-index: 1;
+    transition: all 0.35s var(--ux-ease);
+}
+
+.obs-node.done .obs-node-dot {
+    background: var(--success);
+    box-shadow: 0 0 8px var(--ux-success-glow);
+}
+
+.obs-node.active .obs-node-dot {
+    background: var(--accent);
+    box-shadow: 0 0 10px var(--ux-glow);
+    animation: uxDotPulse 1.6s ease-in-out infinite;
+}
+
+.obs-node-label {
+    font-size: 0.62rem;
+    color: var(--text-secondary);
+    text-align: center;
+    white-space: nowrap;
+}
+
+.obs-node.active .obs-node-label {
+    color: var(--accent);
+    font-weight: 600;
+}
+
+.obs-node-connector {
+    position: absolute;
+    top: 5px;
+    left: calc(50% + 6px);
+    width: calc(100% - 12px);
+    height: 2px;
+    background: var(--border);
+    z-index: 0;
+}
+
+.obs-node:last-child .obs-node-connector {
+    display: none;
+}
+
+.obs-node.done .obs-node-connector {
+    background: linear-gradient(90deg, var(--success), var(--border));
+}
+
+/* 阶段 Stepper 图标 */
+.phase-stepper.enhanced .phase-dot {
+    font-size: 0;
+    position: relative;
+}
+
+.phase-stepper.enhanced .phase-dot::before {
+    font-size: 0.85rem;
+    line-height: 1;
+}
+
+.phase-step[data-phase="align"] .phase-dot::before { content: "◎"; font-size: 0.75rem; }
+.phase-step[data-phase="plan"] .phase-dot::before { content: "▦"; }
+.phase-step[data-phase="build"] .phase-dot::before { content: "⚙"; }
+.phase-step[data-phase="deliver"] .phase-dot::before { content: "▣"; }
+
+.phase-step.active .phase-dot {
+    animation: uxPhaseBreathe 2.4s ease-in-out infinite;
+}
+
+@keyframes uxPhaseBreathe {
+    0%, 100% { box-shadow: 0 0 8px var(--ux-glow); transform: scale(1); }
+    50% { box-shadow: 0 0 16px var(--ux-glow); transform: scale(1.06); }
+}
+
+.phase-substep {
+    font-size: 0.6rem;
+    color: var(--text-secondary);
+    max-width: 72px;
+    text-align: center;
+    line-height: 1.2;
+    min-height: 1.2em;
+    margin-top: 2px;
+}
+
+.phase-step.active .phase-substep {
+    color: var(--accent);
+}
+
+/* 进度条 shimmer */
+.progress-bar.shimmer-active {
+    background: linear-gradient(
+        90deg,
+        var(--accent) 0%,
+        #79c0ff 45%,
+        var(--accent) 90%
+    );
+    background-size: 200% 100%;
+    animation: uxProgressShimmer 2.2s linear infinite;
+}
+
+@keyframes uxProgressShimmer {
+    0% { background-position: 100% 0; }
+    100% { background-position: -100% 0; }
+}
+
+/* 浮动主操作 CTA */
+.btn-floating.waiting {
+    animation: uxCtaBreathe 2s ease-in-out infinite;
+    box-shadow: 0 4px 20px rgba(88, 166, 255, 0.35);
+}
+
+@keyframes uxCtaBreathe {
+    0%, 100% { transform: translateY(0); box-shadow: 0 4px 16px rgba(88, 166, 255, 0.3); }
+    50% { transform: translateY(-2px); box-shadow: 0 8px 28px rgba(88, 166, 255, 0.45); }
+}
+
+/* 模块卡片状态过渡 */
+.module-card {
+    transition: border-color 0.35s var(--ux-ease), box-shadow 0.35s var(--ux-ease), transform 0.25s var(--ux-ease);
+}
+
+.module-card.module-active {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px rgba(88, 166, 255, 0.25), 0 4px 16px rgba(0, 0, 0, 0.2);
+    animation: uxModuleActive 2s ease-in-out infinite;
+}
+
+@keyframes uxModuleActive {
+    0%, 100% { box-shadow: 0 0 0 1px rgba(88, 166, 255, 0.2); }
+    50% { box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.45), 0 0 12px var(--ux-glow); }
+}
+
+.module-status-icon {
+    display: inline-block;
+    width: 1.1em;
+    text-align: center;
+    margin-right: 2px;
+}
+
+.stat-chip {
+    transition: transform 0.2s var(--ux-ease);
+}
+
+.stat-chip.stat-live {
+    animation: uxStatPop 0.45s var(--ux-ease);
+}
+
+@keyframes uxStatPop {
+    0% { transform: scale(1); }
+    40% { transform: scale(1.08); }
+    100% { transform: scale(1); }
+}
+
+/* 面板统一过渡 */
+.alignment-panel,
+.plan-comparison,
+.dependency-panel,
+.delivery-section,
+.log-section,
+.ai-stream-section {
+    animation: uxPanelEnter 0.4s var(--ux-ease) forwards;
+}
+
+@keyframes uxPanelEnter {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.main.workflow-active {
+    scroll-behavior: smooth;
+}
+
+/* 上下文扫描条 */
+.context-scan-bar {
+    animation: uxPanelEnter 0.35s var(--ux-ease);
+}
+
+.progress-text.status-animate {
+    animation: uxTextFade 0.5s var(--ux-ease);
+}
+
+@keyframes uxTextFade {
+    from { opacity: 0.4; }
+    to { opacity: 1; }
+}
+
+/* CI 助手 — 操作建议条 */
+.action-suggest-bar {
+    margin-top: 10px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: rgba(88, 166, 255, 0.06);
+    border: 1px solid rgba(88, 166, 255, 0.22);
+    animation: uxPanelEnter 0.35s var(--ux-ease);
+}
+
+.action-suggest-inner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.action-suggest-icon {
+    font-size: 0.9rem;
+    flex-shrink: 0;
+    opacity: 0.85;
+}
+
+.action-suggest-text {
+    flex: 1;
+    min-width: 140px;
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    line-height: 1.45;
+}
+
+.action-suggest-buttons {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-left: auto;
+}
+
+.btn-action-suggest {
+    font-size: 0.72rem;
+    padding: 5px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: background 0.2s var(--ux-ease), border-color 0.2s var(--ux-ease), transform 0.15s;
+    white-space: nowrap;
+}
+
+.btn-action-suggest:hover:not(:disabled) {
+    transform: translateY(-1px);
+    border-color: var(--accent);
+}
+
+.btn-action-suggest.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+    font-weight: 500;
+}
+
+.btn-action-suggest.danger {
+    border-color: rgba(248, 81, 73, 0.5);
+    color: var(--error);
+    background: rgba(248, 81, 73, 0.08);
+}
+
+.btn-action-suggest.ghost {
+    opacity: 0.55;
+    cursor: default;
+    border-style: dashed;
+}
+
+.btn-action-suggest:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.action-suggest-bar.status-failed,
+.action-suggest-bar.status-needs_review {
+    background: rgba(248, 81, 73, 0.06);
+    border-color: rgba(248, 81, 73, 0.25);
+}
+
+.action-suggest-bar.status-completed {
+    background: rgba(63, 185, 80, 0.06);
+    border-color: rgba(63, 185, 80, 0.28);
+}
+
+.action-suggest-bar.status-aligned,
+.action-suggest-bar.status-plan_ready {
+    background: rgba(88, 166, 255, 0.1);
+    border-color: rgba(88, 166, 255, 0.35);
+}
+
+/* 紧凑 AI token 流 — 打字机效果，有限窗口 */
+.ai-stream-section.compact {
+    margin-top: 10px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.15);
+    border: 1px solid var(--border);
+}
+
+.ai-stream-section.compact .ai-stream-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.ai-stream-section.compact .ai-stream-label {
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: var(--text-secondary);
+    opacity: 0.8;
+}
+
+.ai-stream-section.compact .ai-agent-tag {
+    font-size: 0.68rem;
+    padding: 2px 8px;
+}
+
+.ai-stream-section.compact .ai-stream-status {
+    font-size: 0.65rem;
+    color: var(--text-secondary);
+    margin-left: auto;
+    opacity: 0.85;
+}
+
+.ai-stream-section.compact .ai-stream-container {
+    max-height: 112px;
+    min-height: 2.4em;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 6px 8px;
+    border-radius: 6px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    font-family: "SF Mono", "Cascadia Code", "Fira Code", monospace;
+    font-size: 0.72rem;
+    line-height: 1.55;
+    word-break: break-word;
+}
+
+.ai-stream-live {
+    white-space: pre-wrap;
+    color: var(--text-primary);
+}
+
+.ai-stream-cursor {
+    display: inline-block;
+    width: 2px;
+    height: 1em;
+    margin-left: 1px;
+    vertical-align: text-bottom;
+    background: var(--accent);
+    animation: aiCursorBlink 1s step-end infinite;
+}
+
+.ai-stream-section.is-streaming .ai-stream-cursor {
+    opacity: 1;
+}
+
+.ai-stream-section:not(.is-streaming) .ai-stream-cursor {
+    opacity: 0;
+}
+
+@keyframes aiCursorBlink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+}

@@ -632,6 +632,51 @@ body {
     flex-shrink: 0;
 }
 
+.history-item.selected {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px rgba(88, 166, 255, 0.35);
+}
+
+.history-item.selected-dir:not(.selected) {
+    border-color: rgba(88, 166, 255, 0.45);
+    border-style: dashed;
+}
+
+.history-dir-badge {
+    font-size: 0.6rem;
+    padding: 1px 6px;
+    border-radius: 999px;
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
+.history-dir-badge.active-run {
+    background: rgba(63, 185, 80, 0.15);
+    color: var(--success);
+}
+
+.history-dir-badge.superseded {
+    background: rgba(88, 166, 255, 0.12);
+    color: var(--accent);
+}
+
+.history-dir-badge.archived {
+    background: rgba(139, 148, 158, 0.15);
+    color: var(--text-secondary);
+}
+
+.history-review-chip {
+    flex: 1 1 100%;
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+    padding: 4px 0 0;
+    line-height: 1.4;
+}
+
+.history-review-chip.hidden {
+    display: none;
+}
+
 .context-scan-bar {
     display: flex;
     align-items: flex-start;

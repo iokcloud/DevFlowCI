@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DevFlow CI — 项目型开发伙伴</title>
     <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/ux-polish.css">
 </head>
 <body>
     <header class="header">
@@ -105,7 +106,11 @@
             <div id="status-bar" class="status-bar hidden">
                 <div class="status-header">
                     <h3 id="current-project-title"></h3>
-                    <div style="display:flex;align-items:center;gap:10px;">
+                    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                        <span id="active-agent-badge" class="active-agent-badge hidden" title="当前活跃 Agent">
+                            <span class="agent-dot"></span>
+                            <span id="active-agent-text">Agent</span>
+                        </span>
                         <button id="btn-back-to-form" class="btn-back" title="返回新建项目" onclick="resetToInitialState()">← 返回</button>
                         <button id="btn-cancel-project" class="btn-cancel hidden" title="终止当前项目" onclick="cancelProject()">🛑 终止</button>
                         <span id="current-status-badge" class="badge"></span>
@@ -115,28 +120,54 @@
                     <div id="progress-bar" class="progress-bar"></div>
                 </div>
                 <div id="progress-text" class="progress-text"></div>
+                <div id="status-hint" class="status-hint hidden"></div>
+                <div id="action-suggest-bar" class="action-suggest-bar hidden">
+                    <div class="action-suggest-inner">
+                        <span id="action-suggest-icon" class="action-suggest-icon" aria-hidden="true">💡</span>
+                        <span id="action-suggest-text" class="action-suggest-text"></span>
+                        <div id="action-suggest-buttons" class="action-suggest-buttons"></div>
+                    </div>
+                </div>
+                <!-- 紧凑 AI 实时 token 流（仅展示当前片段，不堆积历史） -->
+                <div id="ai-stream-section" class="ai-stream-section compact hidden">
+                    <div class="ai-stream-header">
+                        <span class="ai-stream-label">AI</span>
+                        <span id="ai-stream-agent-tag" class="ai-agent-tag"></span>
+                        <span id="ai-stream-status" class="ai-stream-status"></span>
+                    </div>
+                    <div id="ai-stream-container" class="ai-stream-container">
+                        <span id="ai-stream-live" class="ai-stream-live"></span><span id="ai-stream-cursor" class="ai-stream-cursor" aria-hidden="true"></span>
+                    </div>
+                </div>
+                <div id="observability-rail" class="observability-rail hidden">
+                    <div id="obs-track" class="obs-track"></div>
+                </div>
                 <div id="context-scan-bar" class="context-scan-bar hidden"></div>
                 <div id="module-stats-bar" class="module-stats-bar hidden"></div>
                 <!-- 四阶段指示器 -->
-                <div id="phase-stepper" class="phase-stepper">
+                <div id="phase-stepper" class="phase-stepper enhanced">
                     <div class="phase-step" data-phase="align">
                         <span class="phase-dot">1</span>
                         <span class="phase-label">需求对齐</span>
+                        <span class="phase-substep" id="phase-sub-align"></span>
                     </div>
                     <div class="phase-connector"></div>
                     <div class="phase-step" data-phase="plan">
                         <span class="phase-dot">2</span>
                         <span class="phase-label">方案规划</span>
+                        <span class="phase-substep" id="phase-sub-plan"></span>
                     </div>
                     <div class="phase-connector"></div>
                     <div class="phase-step" data-phase="build">
                         <span class="phase-dot">3</span>
                         <span class="phase-label">模块构建</span>
+                        <span class="phase-substep" id="phase-sub-build"></span>
                     </div>
                     <div class="phase-connector"></div>
                     <div class="phase-step" data-phase="deliver">
                         <span class="phase-dot">4</span>
                         <span class="phase-label">集成交付</span>
+                        <span class="phase-substep" id="phase-sub-deliver"></span>
                     </div>
                 </div>
             </div>
@@ -185,19 +216,6 @@
                 <div id="log-container" class="log-container"></div>
             </div>
 
-            <!-- 实时 AI 输出流面板 -->
-            <div id="ai-stream-section" class="ai-stream-section hidden">
-                <div class="ai-stream-header">
-                    <h3>🤖 实时 AI 输出</h3>
-                    <div class="ai-stream-controls">
-                        <span id="ai-stream-agent-tag" class="ai-agent-tag"></span>
-                        <button id="btn-ai-pause" class="ai-stream-btn" onclick="toggleAiPause()" title="暂停/继续">⏯️ 暂停</button>
-                        <button id="btn-ai-clear" class="ai-stream-btn" onclick="clearAiOutput()" title="清空">🗑️ 清空</button>
-                    </div>
-                </div>
-                <div id="ai-stream-container" class="ai-stream-container"></div>
-            </div>
-
             <!-- 错误统计面板 -->
             <div id="error-stats-section" class="error-stats-section hidden">
                 <h3>📊 系统状态 — 错误统计</h3>
@@ -241,6 +259,7 @@
     </div>
 
     <script src="/static/request-queue.js"></script>
+    <script src="/static/ux-states.js"></script>
     <script src="/static/app.js"></script>
 
     <!-- 浮动上下文操作按钮 -->

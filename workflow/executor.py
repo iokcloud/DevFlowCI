@@ -41,6 +41,7 @@ from agents.reviewer import ReviewResult, ReviewerAgent
 from config import (
     MAX_CONCURRENT_MODULES,
     MAX_REVIEW_RETRIES,
+    MAX_CODE_READINESS_RETRIES,
     MAX_NON_MODULE_RETRIES,
     CONTEXT_ANALYSIS_TOKEN_LIMIT,
     CONTEXT_ANALYSIS_MAX_DEPTH,
@@ -73,6 +74,7 @@ from workflow.test_runner import (
     run_full_test_suite,
     TestResult,
 )
+from workflow.code_readiness import assess_module_code, format_readiness_feedback
 from workflow.langgraph_def import (
     ModuleState,
     WorkflowState,
@@ -2055,19 +2057,72 @@ class WorkflowExecutor:
 
     async def _run_module_test_and_log(
         self, pid: str, module_name: str, test_code: str,
+        module_code: str = "",
     ) -> dict[str, Any]:
         """执行模块测试并返回序列化结果。"""
         if not TEST_EXECUTION_ENABLED or not test_code:
             return {"total": 0, "passed": 0, "failed": 0, "summary": "跳过", "execution_mode": "skipped"}
         try:
             tr = await run_module_tests(
-                module_name=module_name, test_code=test_code,
-                project_id=pid, timeout=TEST_UNIT_TIMEOUT, log_callback=push_log,
+                module_name=module_name,
+                test_code=test_code,
+                project_id=pid,
+                timeout=TEST_UNIT_TIMEOUT,
+                log_callback=push_log,
+                module_code=module_code,
+                module_filename=f"{module_name}.py",
             )
             return tr.to_dict()
         except Exception as exc:
             await push_log(pid, "ERROR", f"[{module_name}] 测试执行异常: {exc}", module_name=module_name)
             return {"total": 0, "passed": 0, "failed": 1, "summary": str(exc), "execution_mode": "error"}
+
+    async def _generate_code_until_ready(
+        self,
+        pid: str,
+        module_name: str,
+        spec: ModuleSpec,
+        feedback: str,
+        mvp_mode: bool,
+        *,
+        attempt_label: str = "",
+    ) -> tuple[ModuleCode | None, bool, str]:
+        """编码并在就绪校验通过前不进入测试/审查，避免截断代码误报。"""
+        current_feedback = feedback
+        last_code: ModuleCode | None = None
+        max_attempts = MAX_CODE_READINESS_RETRIES + 1
+
+        for attempt in range(max_attempts):
+            label = attempt_label or f"第 {attempt + 1}/{max_attempts} 次"
+            await _update_module_status(pid, module_name, "coding")
+            await push_log(
+                pid, "INFO",
+                f"[{module_name}] 编码中…（{label}）",
+                module_name=module_name,
+            )
+            last_code = await self._modules.code(
+                module_name, spec, current_feedback, mvp_mode=mvp_mode,
+            )
+            readiness = assess_module_code(
+                last_code.code, last_code.test_code, language=last_code.language,
+            )
+            if readiness.ready:
+                return last_code, True, current_feedback
+
+            current_feedback = format_readiness_feedback(readiness)
+            await push_log(
+                pid, "WARN",
+                f"[{module_name}] 编码产出未就绪（{readiness.phase}），"
+                f"暂不进入测试/审查: {'; '.join(readiness.issues[:2])}",
+                module_name=module_name,
+            )
+
+        if last_code is None:
+            return None, False, current_feedback
+        final = assess_module_code(
+            last_code.code, last_code.test_code, language=last_code.language,
+        )
+        return last_code, final.ready, format_readiness_feedback(final)
 
     async def _execute_single_module(
         self,
@@ -2131,16 +2186,21 @@ class WorkflowExecutor:
             for retry in range(MAX_REVIEW_RETRIES):
                 total_rounds += 1
 
-                await _update_module_status(pid, module_name, "coding")
-                # 编码
-                await push_log(
-                    pid, "INFO",
-                    f"[{module_name}] 编码中...（第 {retry + 1} 次）",
-                    module_name=module_name,
+                code, code_ready, readiness_feedback_text = await self._generate_code_until_ready(
+                    pid, module_name, spec, feedback, compact_mvp,
+                    attempt_label=f"审查轮次 {retry + 1}",
                 )
-                code = await self._modules.code(
-                    module_name, spec, feedback, mvp_mode=compact_mvp,
-                )
+                if not code_ready or code is None:
+                    failure_reason = readiness_feedback_text or "编码产出未就绪"
+                    await push_log(
+                        pid, "WARN",
+                        f"[{module_name}] 编码未通过就绪校验，跳过本轮 LLM 测试/审查",
+                        module_name=module_name,
+                    )
+                    feedback = failure_reason
+                    if retry < MAX_REVIEW_RETRIES - 1:
+                        continue
+                    break
 
                 await _update_module_status(pid, module_name, "testing")
                 # 测试
@@ -2172,13 +2232,13 @@ class WorkflowExecutor:
                 exec_test_result: dict[str, Any] | None = None
                 if use_mvp_test_gate:
                     exec_test_result = await self._run_module_test_and_log(
-                        pid, module_name, code.test_code,
+                        pid, module_name, code.test_code, module_code=code.code,
                     )
 
                 if review.passed:
                     if exec_test_result is None:
                         exec_test_result = await self._run_module_test_and_log(
-                            pid, module_name, code.test_code,
+                            pid, module_name, code.test_code, module_code=code.code,
                         )
                     await push_log(
                         pid, "SUCCESS",
@@ -2298,9 +2358,23 @@ class WorkflowExecutor:
                             logic_flow=spec_obj.get("logic_flow", ""),
                             error_handling=spec_obj.get("error_handling", ""),
                         )
-                    return await self._modules.code(mn, spec_obj, fb, mvp_mode=compact_mvp)
+                    coded, ready, fb_out = await self._generate_code_until_ready(
+                        pid, mn, spec_obj, fb, compact_mvp,
+                        attempt_label="自愈编码",
+                    )
+                    if not ready and coded is not None:
+                        raise ValueError(fb_out or "编码产出未就绪")
+                    return coded
 
                 async def _do_review(mn: str, summary: str, c: str, tc: str, retry: int):
+                    readiness = assess_module_code(c, tc)
+                    if not readiness.ready:
+                        from agents.reviewer import ReviewResult
+                        return ReviewResult(
+                            passed=False,
+                            summary="编码产出未就绪，跳过审查",
+                            issues=readiness.issues or ["代码尚未完整，请继续编码"],
+                        )
                     return await self._reviewer.review(
                         mn, summary, c, tc, retry_count=retry, mvp_mode=compact_mvp,
                     )
@@ -2308,12 +2382,19 @@ class WorkflowExecutor:
                 async def _do_repair(moutput: dict, hcases: list):
                     return await self._repair_agent.repair(moutput, hcases)
 
-                async def _do_test(mn: str, tc: str):
+                async def _do_test(mn: str, tc: str, mc: str = ""):
                     from workflow.test_runner import run_module_tests
+                    readiness = assess_module_code(mc, tc)
+                    if mc and not readiness.ready:
+                        return None
                     try:
                         return await run_module_tests(
-                            module_name=mn, test_code=tc,
-                            project_id=pid, timeout=TEST_UNIT_TIMEOUT,
+                            module_name=mn,
+                            test_code=tc,
+                            project_id=pid,
+                            timeout=TEST_UNIT_TIMEOUT,
+                            module_code=mc,
+                            module_filename=f"{mn}.py",
                         )
                     except Exception:
                         return None
@@ -2357,7 +2438,9 @@ class WorkflowExecutor:
                         f"[{module_name}] 闭环修复成功！策略: {loop_result.strategy_used}",
                         module_name=module_name,
                     )
-                    exec_test_result = await self._run_module_test_and_log(pid, module_name, loop_result.test_code)
+                    exec_test_result = await self._run_module_test_and_log(
+                        pid, module_name, loop_result.test_code, module_code=loop_result.code,
+                    )
                     state["module_results"][module_name] = {
                         "module_name": module_name,
                         "status": "passed",

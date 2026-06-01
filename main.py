@@ -409,6 +409,19 @@ async def get_history(limit: int = 20) -> list[dict[str, Any]]:
         )
         projects = result.scalars().all()
 
+        dir_counts: dict[str, int] = {}
+        dir_active: dict[str, str] = {}
+        for p in projects:
+            if not p.directory:
+                continue
+            dir_counts[p.directory] = dir_counts.get(p.directory, 0) + 1
+            if (
+                p.status not in _TERMINAL_PROJECT_STATUSES
+                and not _is_stale_project(p)
+                and p.directory not in dir_active
+            ):
+                dir_active[p.directory] = p.project_id
+
         return [
             {
                 "project_id": p.project_id,
@@ -421,6 +434,12 @@ async def get_history(limit: int = 20) -> list[dict[str, Any]]:
                 "created_at": p.created_at.isoformat(),
                 "updated_at": p.updated_at.isoformat(),
                 "is_stale": _is_stale_project(p),
+                "directory_entry_count": dir_counts.get(p.directory, 0)
+                if p.directory
+                else 0,
+                "directory_active_id": dir_active.get(p.directory)
+                if p.directory
+                else None,
             }
             for p in projects
         ]
@@ -552,6 +571,42 @@ async def get_project(project_id: str) -> dict[str, Any]:
     if not snapshot:
         raise HTTPException(404, "项目不存在")
     return snapshot
+
+
+@app.get("/api/projects/{project_id}/logs/recent")
+async def get_recent_logs(project_id: str, limit: int = 150) -> list[dict[str, Any]]:
+    """获取项目历史日志（非 SSE，用于终态回顾）。
+
+    GET /api/projects/{project_id}/logs/recent?limit=150
+    """
+    from database.db import async_session_factory
+    from sqlalchemy import desc, select
+
+    limit = max(1, min(limit, 500))
+    async with async_session_factory() as db:
+        proj = await db.execute(
+            select(Project).where(Project.project_id == project_id)
+        )
+        project = proj.scalar_one_or_none()
+        if not project:
+            raise HTTPException(404, "项目不存在")
+
+        result = await db.execute(
+            select(ProjectLog)
+            .where(ProjectLog.project_id_fk == project.id)
+            .order_by(desc(ProjectLog.timestamp))
+            .limit(limit)
+        )
+        rows = list(reversed(result.scalars().all()))
+        return [
+            {
+                "level": row.level,
+                "message": row.message,
+                "module_name": row.module_name or "",
+                "timestamp": row.timestamp.isoformat() if row.timestamp else "",
+            }
+            for row in rows
+        ]
 
 
 @app.get("/api/projects/{project_id}/logs")

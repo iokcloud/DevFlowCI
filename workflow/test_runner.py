@@ -200,6 +200,8 @@ async def run_module_tests(
     project_id: str = "",
     timeout: int = 30,
     log_callback=None,
+    module_code: str = "",
+    module_filename: str = "",
 ) -> TestResult:
     """在沙箱中执行模块的单元测试。
 
@@ -209,6 +211,8 @@ async def run_module_tests(
         project_id: 项目 ID（用于沙箱目录）
         timeout: 超时秒数
         log_callback: async fn(level, message, module_name)
+        module_code: 被测模块源码（写入沙箱供 import，避免 ImportError 误报）
+        module_filename: 模块文件名，默认 ``{module_name}.py``
 
     Returns:
         TestResult
@@ -231,6 +235,10 @@ async def run_module_tests(
     # 创建沙箱目录
     sandbox = Path(tempfile.gettempdir()) / "devflow_test_env" / project_id / module_name
     sandbox.mkdir(parents=True, exist_ok=True)
+
+    if module_code and module_code.strip():
+        src_name = module_filename or f"{module_name}.py"
+        (sandbox / src_name).write_text(module_code, encoding="utf-8")
 
     test_file = sandbox / f"test_{module_name}.py"
     test_file.write_text(test_code, encoding="utf-8")

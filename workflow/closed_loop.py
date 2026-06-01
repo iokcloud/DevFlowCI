@@ -332,7 +332,7 @@ async def closed_loop_repair(
         do_code: 编码回调 async fn(module_name, spec, feedback) -> ModuleCode
         do_review: 审查回调 async fn(module_name, summary, code, test_code, retry) -> ReviewResult
         do_repair: 修复回调 async fn(module_output, history_cases) -> RepairResult
-        do_test: 测试回调 async fn(module_name, test_code) -> TestResult | None
+        do_test: 测试回调 async fn(module_name, test_code, module_code="") -> TestResult | None
         push_log: 日志回调 async fn(pid, level, msg, module_name)
         max_total_rounds: 最大总轮次
         quick_review_max: 快速审查最大次数
@@ -439,7 +439,7 @@ async def closed_loop_repair(
                     # 执行实际测试验证
                     test_ok = True
                     try:
-                        test_result = await do_test(module_name, test_code)
+                        test_result = await do_test(module_name, test_code, code)
                         test_ok = test_result.passed if test_result and hasattr(test_result, 'passed') else True
                     except Exception as te:
                         await push_log(project_id, "WARN", f"[闭环修复][{module_name}] 测试验证异常: {te}", module_name=module_name)
@@ -484,7 +484,7 @@ async def closed_loop_repair(
                     if review_passed:
                         test_ok = True
                         try:
-                            test_result = await do_test(module_name, test_code)
+                            test_result = await do_test(module_name, test_code, code)
                             test_ok = test_result.passed if test_result and hasattr(test_result, 'passed') else True
                         except Exception:
                             test_ok = False
@@ -558,7 +558,7 @@ async def closed_loop_repair(
                     if review_passed:
                         test_ok = True
                         try:
-                            test_result = await do_test(module_name, test_code)
+                            test_result = await do_test(module_name, test_code, code)
                             test_ok = test_result.passed if test_result and hasattr(test_result, 'passed') else True
                         except Exception:
                             test_ok = False
@@ -633,7 +633,7 @@ async def closed_loop_repair(
                     if review_passed:
                         test_ok = True
                         try:
-                            test_result = await do_test(module_name, test_code)
+                            test_result = await do_test(module_name, test_code, code)
                             test_ok = test_result.passed if test_result and hasattr(test_result, 'passed') else True
                         except Exception:
                             test_ok = False

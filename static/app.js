@@ -20,6 +20,8 @@ let currentProjectId = null;
 let currentPollTimer = null;
 let currentEventSource = null;
 let currentProjectData = null;
+/** @type {"live"|"review"} live=SSE+轮询；review=终态/历史只读回顾 */
+let currentViewMode = "live";
 let selectedDirectory = ""; // 用户通过浏览器选中的项目目录
 /** @type {Record<string, object>} 执行期 SSE 模块快照，与轮询结果合并 */
 let liveModulesByName = {};
@@ -43,6 +45,14 @@ const els = {
     progressBar: $("#progress-bar"),
     progressText: $("#progress-text"),
     contextScanBar: $("#context-scan-bar"),
+    statusHint: $("#status-hint"),
+    actionSuggestBar: $("#action-suggest-bar"),
+    actionSuggestText: $("#action-suggest-text"),
+    actionSuggestButtons: $("#action-suggest-buttons"),
+    observabilityRail: $("#observability-rail"),
+    obsTrack: $("#obs-track"),
+    activeAgentBadge: $("#active-agent-badge"),
+    activeAgentText: $("#active-agent-text"),
     moduleStatsBar: $("#module-stats-bar"),
     recentErrorsSection: $("#recent-errors-section"),
     recentErrorsContent: $("#recent-errors-content"),
@@ -55,6 +65,7 @@ const els = {
     floatingAction: $("#floating-action"),
     btnFloatingAction: $("#btn-floating-action"),
     sidebar: $(".sidebar"),
+    main: $(".main"),
     welcomePanel: $("#welcome-panel"),
     btnCancel: $("#btn-cancel-project"),
 };
@@ -71,6 +82,7 @@ document.addEventListener("DOMContentLoaded", () => {
     checkHealth();
     loadHistory();
     _injectAnimations();
+    setupActionSuggestBar();
 });
 
 // ── 动画系统初始化 ────────────────────────────────────
@@ -269,8 +281,9 @@ function setupSubmit() {
 
 // ── 监控项目 ────────────────────────────────────────
 function startWatching(projectId, keepPanelVisible = false) {
+    currentViewMode = "live";
     // 停止之前的监控
-    stopWatching();
+    stopLiveConnections();
     liveModulesByName = {};
 
     // 收缩左侧表单，展开工作区
@@ -302,7 +315,10 @@ function startWatching(projectId, keepPanelVisible = false) {
     els.progressBar.style.width = "5%";
     els.progressText.textContent = "初始化中...";
     els.progressText.classList.add("status-animate");
-    updatePhaseStepper("align");
+    if (els.statusHint) els.statusHint.classList.add("hidden");
+    if (els.observabilityRail) els.observabilityRail.classList.add("hidden");
+    if (els.actionSuggestBar) els.actionSuggestBar.classList.add("hidden");
+    setActiveAgentBadge(null);
     updateActionButton("processing", "分析中...");
 
     // SSE 日志
@@ -317,9 +333,10 @@ function startWatching(projectId, keepPanelVisible = false) {
     // 轮询状态（SSE project_snapshot 为主，此为兜底）
     currentPollTimer = setInterval(() => pollStatus(projectId), POLL_FALLBACK_MS);
     pollStatus(projectId); // 立即执行一次
+    markHistorySelection(projectId);
 }
 
-function stopWatching() {
+function stopLiveConnections() {
     if (currentPollTimer) {
         clearInterval(currentPollTimer);
         currentPollTimer = null;
@@ -329,10 +346,15 @@ function stopWatching() {
         currentEventSource = null;
     }
     disconnectAiStream();
+}
+
+function stopWatching() {
+    stopLiveConnections();
     els.btnSubmit.disabled = false;
     els.btnSubmit.textContent = "🚀 开始构建";
     expandSidebar();
     if (els.floatingAction) els.floatingAction.classList.add("hidden");
+    clearHistorySelection();
 }
 
 // ── SSE 日志 ────────────────────────────────────────
@@ -412,11 +434,289 @@ function applyProjectData(project, projectId) {
     initLiveModules(project.modules || []);
     project.modules = getLiveModulesList();
     renderStatus(project);
+    applyUnifiedPresentation(project);
     renderContextScanBar(project.context_scan);
     renderModuleStatsBar(project);
     renderRecentErrorLogs(project);
+    updateReviewModeChrome(project);
     if (projectId) {
         loadErrorStats(projectId);
+    }
+}
+
+/** 统一可观测性：进度/文案/流水线/呼吸动效 */
+function applyUnifiedPresentation(project) {
+    if (!project || !window.DevFlowUX) return;
+    const ux = window.DevFlowUX;
+    const meta = ux.STATUS_CATALOG[project.status] || {};
+
+    // 精准主文案 + 副提示
+    const mainText = ux.buildProgressText(project);
+    if (mainText && els.progressText) {
+        els.progressText.textContent = mainText;
+        els.progressText.classList.add("status-animate");
+    }
+
+    if (els.statusHint) {
+        const hint = meta.hint || "";
+        els.statusHint.textContent = hint;
+        els.statusHint.classList.toggle("hidden", !hint);
+        els.statusHint.classList.toggle("action-needed", !!meta.action);
+    }
+
+    // 进度条细颗粒度
+    const pct = ux.progressPercent(project);
+    if (els.progressBar) {
+        els.progressBar.style.width = pct + "%";
+        const pulsing = !!meta.pulse || ["aligning", "planning", "executing", "integrating", "reviewing"].includes(project.status);
+        els.progressBar.classList.toggle("shimmer-active", pulsing);
+        els.progressBar.classList.toggle("indeterminate", project.status === "created");
+    }
+
+    // 徽章文案与呼吸
+    if (els.currentStatusBadge) {
+        els.currentStatusBadge.textContent = meta.label || project.status;
+        els.currentStatusBadge.classList.toggle("pulse-badge", !!meta.pulse);
+    }
+
+    renderObservabilityRail(project);
+    updatePhaseSubsteps(project);
+    renderActionSuggestions(project);
+}
+
+function setupActionSuggestBar() {
+    const container = els.actionSuggestButtons;
+    if (!container) return;
+    container.addEventListener("click", (e) => {
+        const btn = e.target.closest("[data-action-id]");
+        if (!btn || btn.disabled) return;
+        const actionId = btn.dataset.actionId;
+        if (actionId && actionId !== "wait") {
+            handleWorkflowAction(actionId, currentProjectData);
+        }
+    });
+}
+
+function renderActionSuggestions(project) {
+    const bar = els.actionSuggestBar;
+    const textEl = els.actionSuggestText;
+    const btnContainer = els.actionSuggestButtons;
+    if (!bar || !textEl || !btnContainer || !window.DevFlowUX) return;
+
+    const suggest = window.DevFlowUX.buildSuggestedActions(project);
+    if (!suggest || !suggest.actions?.length) {
+        bar.classList.add("hidden");
+        return;
+    }
+
+    bar.classList.remove("hidden");
+    bar.className = "action-suggest-bar status-" + (project.status || "");
+    textEl.textContent = suggest.message;
+
+    btnContainer.innerHTML = suggest.actions.map((a) => {
+        const cls = ["btn-action-suggest", a.style || "secondary"].join(" ");
+        const disabled = a.disabled ? " disabled" : "";
+        return `<button type="button" class="${cls}" data-action-id="${escapeHtml(a.id)}"${disabled}>${escapeHtml(a.label)}</button>`;
+    }).join("");
+}
+
+async function handleWorkflowAction(actionId, project) {
+    if (!project?.project_id) return;
+    const ux = window.DevFlowUX;
+    const def = ux?.ACTION_DEFS?.[actionId] || {};
+    if (def.confirm && !confirm(def.confirm)) return;
+
+    const pid = project.project_id;
+
+    switch (actionId) {
+        case "wait":
+            break;
+        case "continue_align":
+            await confirmAlignment(pid);
+            break;
+        case "continue_business":
+            await confirmBusinessPlan(pid);
+            break;
+        case "continue_plan":
+            await autoConfirmPlan(pid);
+            break;
+        case "cancel":
+            await cancelProject();
+            break;
+        case "download":
+            window.location.href = "/api/projects/" + pid + "/download";
+            break;
+        case "new_project":
+            resetToInitialState();
+            break;
+        case "view_logs":
+            scrollToLogSection();
+            break;
+        case "retry_same":
+            await retrySameRequirement(project);
+            break;
+        case "delete_retry":
+            await deleteAndRetryProject(project);
+            break;
+        case "delete":
+            await deleteHistoryProject(pid);
+            break;
+        default:
+            break;
+    }
+}
+
+async function retrySameRequirement(project) {
+    const req = (project?.requirement || "").trim();
+    const directory = project?.directory || null;
+    if (!req && !directory) {
+        showToast("无法获取原需求或目录，请手动新建项目", "error");
+        resetToInitialState();
+        return;
+    }
+
+    try {
+        const data = await requestQueue.fetch(API_BASE + "/api/projects", {
+            method: "POST",
+            body: JSON.stringify({
+                requirement: req || "基于目录继续构建",
+                directory,
+                mode: "auto",
+                force_new: true,
+            }),
+            priority: RequestPriority.CRITICAL,
+            dedupKey: "create-project",
+        });
+        currentProjectId = data.project_id;
+        if (!data.reused) {
+            prependHistoryItem(data.project_id, req || "基于目录继续构建", directory || "");
+        }
+        startWatching(data.project_id);
+        showToast("已创建新项目并开始执行", "success");
+        loadHistory();
+    } catch (e) {
+        showToast("重试失败: " + e.message, "error");
+    }
+}
+
+async function rerunFromCurrentProject(deleteOld = false) {
+    if (!currentProjectData) return;
+    if (deleteOld) {
+        await deleteAndRetryProject(currentProjectData);
+    } else {
+        await retrySameRequirement(currentProjectData);
+    }
+}
+
+async function deleteAndRetryProject(project) {
+    const pid = project?.project_id;
+    const req = (project?.requirement || "").trim();
+    const directory = project?.directory || null;
+    if (!pid) return;
+
+    try {
+        await requestQueue.fetch(
+            API_BASE + "/api/projects/" + pid + "/delete?delete_deliveries=false",
+            { method: "POST", priority: RequestPriority.CRITICAL }
+        );
+        if (currentProjectId === pid) {
+            stopWatching();
+            currentProjectId = null;
+            currentProjectData = null;
+        }
+        loadHistory();
+
+        const data = await requestQueue.fetch(API_BASE + "/api/projects", {
+            method: "POST",
+            body: JSON.stringify({
+                requirement: req || "基于目录继续构建",
+                directory,
+                mode: "auto",
+                force_new: true,
+            }),
+            priority: RequestPriority.CRITICAL,
+            dedupKey: "create-project",
+        });
+        currentProjectId = data.project_id;
+        prependHistoryItem(data.project_id, req || "基于目录继续构建", directory || "");
+        startWatching(data.project_id);
+        showToast("已删除旧记录并重新开始", "success");
+        loadHistory();
+    } catch (e) {
+        showToast("操作失败: " + e.message, "error");
+    }
+}
+
+function renderObservabilityRail(project) {
+    const rail = els.observabilityRail;
+    const track = els.obsTrack;
+    if (!rail || !track || !window.DevFlowUX) return;
+
+    const ux = window.DevFlowUX;
+    const idx = ux.pipelineIndexForStatus(project.status);
+    rail.classList.remove("hidden");
+
+    track.innerHTML = ux.PIPELINE_NODES.map((node, i) => {
+        let cls = "obs-node";
+        if (i < idx) cls += " done";
+        if (i === idx) cls += " active";
+        return `<div class="${cls}">
+            <div class="obs-node-dot"></div>
+            <span class="obs-node-label">${node.label}</span>
+            ${i < ux.PIPELINE_NODES.length - 1 ? '<div class="obs-node-connector"></div>' : ""}
+        </div>`;
+    }).join("");
+}
+
+function updatePhaseSubsteps(project) {
+    const subs = {
+        align: document.getElementById("phase-sub-align"),
+        plan: document.getElementById("phase-sub-plan"),
+        build: document.getElementById("phase-sub-build"),
+        deliver: document.getElementById("phase-sub-deliver"),
+    };
+    const st = project.status;
+    const map = {
+        align: st === "aligning" ? "扫描 · 推理" : st === "aligned" ? "待您确认" : "",
+        plan: st === "planning" ? "PM 拆解中" : st === "plan_ready" ? "待确认方案" : "",
+        build: st === "executing" ? moduleBuildSubstep(project.modules) : "",
+        deliver: st === "integrating" ? "组装项目" : st === "reviewing" ? "质量审查" : st === "completed" ? "可下载" : "",
+    };
+    Object.keys(subs).forEach((k) => {
+        if (subs[k]) subs[k].textContent = map[k] || "";
+    });
+}
+
+function moduleBuildSubstep(modules) {
+    if (!modules || !modules.length) return "等待模块";
+    const active = modules.find((m) =>
+        ["analyzing", "coding", "testing", "reviewing", "auto_fixing"].includes(m.status)
+    );
+    if (active && window.DevFlowUX) {
+        const mm = window.DevFlowUX.MODULE_STATUS_META[active.status];
+        return mm ? `${active.module_name}` : active.module_name;
+    }
+    const done = modules.filter((m) => m.status === "passed").length;
+    return `${done}/${modules.length} 完成`;
+}
+
+function setActiveAgentBadge(agentKey) {
+    const badge = els.activeAgentBadge;
+    const textEl = els.activeAgentText;
+    if (!badge || !textEl || !window.DevFlowUX) return;
+    if (!agentKey) {
+        badge.classList.add("hidden");
+        return;
+    }
+    const info = window.DevFlowUX.AGENT_DISPLAY[agentKey] || { label: agentKey };
+    textEl.textContent = info.label;
+    badge.classList.remove("hidden");
+}
+
+function scrollToWorkflowFocus(selector) {
+    const el = document.querySelector(selector);
+    if (el && !el.classList.contains("hidden")) {
+        el.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }
 }
 
@@ -476,25 +776,22 @@ function handleProjectSnapshot(snapshot) {
 }
 
 function renderStatus(project) {
-    // 状态徽章
+    const ux = window.DevFlowUX;
+    const meta = ux ? ux.STATUS_CATALOG[project.status] : null;
+
+    // 状态徽章（renderStatus 内保留 class，文案由 applyUnifiedPresentation 精修）
     const statusTexts = {
-        created: "已创建", aligning: "需求分析中", aligned: "需求对齐完成",
-        planning: "规划中", plan_ready: "等待确认",
-        executing: "执行中", integrating: "集成中", reviewing: "审查中",
+        created: "已创建", aligning: "需求分析中", aligned: "待确认计划",
+        planning: "方案规划中", plan_ready: "待确认方案",
+        executing: "模块构建中", integrating: "项目集成中", reviewing: "全局审查中",
         completed: "已完成", failed: "已失败", needs_review: "需人工介入",
         cancelled: "已终止",
     };
-    els.currentStatusBadge.textContent = statusTexts[project.status] || project.status;
+    els.currentStatusBadge.textContent = (meta && meta.label) || statusTexts[project.status] || project.status;
     els.currentStatusBadge.className = "badge " + project.status;
+    if (meta && meta.pulse) els.currentStatusBadge.classList.add("pulse-badge");
 
-    // 进度条
-    const progressMap = {
-        created: 3, aligning: 10, aligned: 15,
-        planning: 20, plan_ready: 25, executing: 50,
-        integrating: 75, reviewing: 85, completed: 100, failed: 100,
-        needs_review: 50,
-    };
-    els.progressBar.style.width = (progressMap[project.status] || 0) + "%";
+    updatePhaseStepper(statusToPhase(project.status));
 
     // ── created：刚创建，等待后端启动分析 ──
     if (project.status === "created") {
@@ -520,10 +817,14 @@ function renderStatus(project) {
     // ── failed / needs_review / cancelled：展示错误状态 ──
     if (project.status === "failed" || project.status === "needs_review" || project.status === "cancelled") {
         if (project.status === "cancelled") {
+            if (currentViewMode === "live") {
+                stopLiveConnections();
+                currentViewMode = "review";
+            }
             els.progressText.textContent = "🛑 项目已被终止";
             updateActionButton("hidden");
             if (els.btnCancel) els.btnCancel.classList.add("hidden");
-            stopWatching();
+            applyUnifiedPresentation(project);
             return;
         }
         const isFailed = project.status === "failed";
@@ -600,51 +901,53 @@ function renderStatus(project) {
         return;
     }
 
+    applyUnifiedPresentation(project);
+
     // 需求对齐中 — 过渡动画
     if (project.status === "aligning") {
-        // ★ 动态轮播消息，让用户感知分析在进行中
-        const aligningMessages = [
-            "🤔 正在扫描项目文档结构...",
-            "🔍 识别文档类型与关键内容...",
-            "📊 AI 正在分析文档中的商业/技术信息...",
-            "🧠 生成需求对齐计划...",
-        ];
-        const idx = Math.floor(Date.now() / 3000) % aligningMessages.length;
-        els.progressText.textContent = aligningMessages[idx];
+        setActiveAgentBadge(project.alignment?.plan_type === "business" ? "business_planner" : "alignment_agent");
         els.progressText.classList.add("status-animate");
-        // 进度条保持在分析范围
-        els.progressBar.style.width = (10 + (Date.now() % 5000) / 5000 * 5) + "%";
         updatePhaseStepper("align");
         updateActionButton("processing", "分析中...");
         showAligningAnimation();
+        scrollToWorkflowFocus("#alignment-panel");
         return;
     }
 
     // 需求对齐完成 — 展示确认页
     if (project.status === "aligned" && project.alignment) {
+        setActiveAgentBadge(null);
         // ★ 清除重试超时定时器
         if (window._retryTimeout) { clearTimeout(window._retryTimeout); window._retryTimeout = null; }
-        els.progressText.textContent = "需求对齐完成 — 请确认执行计划";
-        updatePhaseStepper("align");
-        updateActionButton("waiting", "确认计划", () => confirmAlignment(project.project_id));
-        showAlignmentConfirmation(project);
+        const confirmLabel = project.alignment.plan_type === "business" ? "确认商业计划" : "确认计划";
+        updateActionButton("waiting", confirmLabel, () =>
+            project.alignment.plan_type === "business"
+                ? confirmBusinessPlan(project.project_id)
+                : confirmAlignment(project.project_id)
+        );
+        if (project.alignment.plan_type === "business") {
+            showBusinessPlan(project, project.alignment);
+        } else {
+            showAlignmentConfirmation(project);
+        }
         showVersionPanel(project.project_id);
         updateHistoryItemStatus(project.project_id, "aligned");
+        scrollToWorkflowFocus("#alignment-panel");
         return;
     }
 
     // 规划中
     if (project.status === "planning") {
-        els.progressText.textContent = "PM Agent 正在拆解任务...";
+        setActiveAgentBadge("planner");
         updatePhaseStepper("plan");
         updateActionButton("processing", "规划中...");
+        scrollToWorkflowFocus("#status-bar");
         return;
     }
 
     // 规划阶段 — 展示方案对比和依赖
     if (project.status === "plan_ready" && project.plan) {
-        const modCount = project.plan.modules?.length || 0;
-        els.progressText.textContent = `已规划 ${modCount} 个模块 — 请选择方案`;
+        setActiveAgentBadge(null);
         updatePhaseStepper("plan");
         updateActionButton("waiting", "确认方案", () => autoConfirmPlan(project.project_id));
         showPlanComparison(project);
@@ -653,67 +956,74 @@ function renderStatus(project) {
         if (project.modules && project.modules.length) {
             renderModules(project.modules);
         }
+        scrollToWorkflowFocus("#plan-comparison");
         return;
     }
 
     // 执行中
     if (project.status === "executing" && project.modules) {
+        setActiveAgentBadge("module_agents");
         renderModuleStatsBar(project);
-        const done = project.modules.filter(
-            (m) => m.status === "passed"
-        ).length;
-        const blocked = project.modules.filter(
-            (m) => m.status === "blocked"
-        ).length;
-        const total = project.modules.length;
-        let text = `模块执行中：${done}/${total} 通过`;
-        if (blocked > 0) {
-            text += `（${blocked} 个阻塞）`;
-        }
-        els.progressText.textContent = text;
         updatePhaseStepper("build");
         updateActionButton("processing", "构建中...");
         renderModules(project.modules);
-        // 交错动画
         setTimeout(() => animateCardsIn(els.modulesGrid), 100);
-        // 更新历史条目状态
         updateHistoryItemStatus(project.project_id, project.status);
+        scrollToWorkflowFocus("#modules-grid");
+        return;
     }
 
     // 集成/审查中
     if (project.status === "integrating" || project.status === "reviewing") {
+        setActiveAgentBadge(project.status === "integrating" ? "integrator" : "global_reviewer");
         updatePhaseStepper("deliver");
-        updateActionButton("processing", "集成审查中...");
+        updateActionButton("processing", project.status === "integrating" ? "集成中…" : "审查中…");
         if (project.modules && project.modules.length) {
             renderModuleStatsBar(project);
             renderModules(project.modules);
         }
+        scrollToWorkflowFocus("#modules-grid");
+        return;
     }
 
     // 完成/失败/需人工介入
     if (project.status === "completed" || project.status === "failed" || project.status === "needs_review") {
+        setActiveAgentBadge(null);
         if (project.status === "completed") {
-            const blockedCount = project.blocked_count || 0;
-            if (blockedCount > 0) {
-                els.progressText.textContent =
-                    "✅ 项目构建完成（含 " + blockedCount + " 个未完成模块，详见 TODO.md）";
-            } else {
-                els.progressText.textContent = "✅ 项目构建完成";
-            }
             updatePhaseStepper("deliver");
+            if (els.progressBar) els.progressBar.classList.remove("shimmer-active");
             updateActionButton("download", "📥 下载交付物", () => {
                 window.location.href = "/api/projects/" + project.project_id + "/download";
             });
-            // 庆祝动画
-            setTimeout(() => showCompletionCelebration(project), 500);
+            setTimeout(() => {
+                if (currentViewMode === "live") showCompletionCelebration(project);
+            }, 500);
+            scrollToWorkflowFocus("#delivery-section");
         } else if (project.status === "needs_review") {
-            els.progressText.textContent = "⚠️ 项目需要人工介入，请检查日志";
+            updatePhaseStepper("build");
         } else {
-            els.progressText.textContent = "❌ 项目构建失败";
+            updatePhaseStepper("deliver");
         }
+        applyUnifiedPresentation(project);
         renderDelivery(project);
-        stopWatching();
+        if (
+            (project.status === "completed" || project.status === "failed")
+            && currentViewMode === "live"
+        ) {
+            stopWatching();
+        }
     }
+}
+
+function statusToPhase(status) {
+    const map = {
+        created: "align", aligning: "align", aligned: "align",
+        planning: "plan", plan_ready: "plan",
+        executing: "build", needs_review: "build",
+        integrating: "deliver", reviewing: "deliver",
+        completed: "deliver", failed: "deliver", cancelled: "align",
+    };
+    return map[status] || "align";
 }
 
 async function autoConfirmPlan(projectId) {
@@ -779,19 +1089,8 @@ function handleModuleEvent(ev) {
         renderModules(currentProjectData.modules);
     }
 
-    if (st === "executing" && currentProjectData.modules) {
-        const passed = currentProjectData.modules.filter((m) => m.status === "passed").length;
-        const blocked = currentProjectData.modules.filter((m) => m.status === "blocked").length;
-        const total = currentProjectData.modules.length;
-        let text = `模块执行中：${passed}/${total} 通过`;
-        if (blocked > 0) text += `（${blocked} 个阻塞）`;
-        const active = currentProjectData.modules.find((m) =>
-            ["analyzing", "coding", "testing", "reviewing", "auto_fixing"].includes(m.status)
-        );
-        if (active) {
-            text += ` · ${active.module_name} ${statusLabel(active.status)}`;
-        }
-        els.progressText.textContent = text;
+    if (st === "executing" || st === "integrating" || st === "reviewing") {
+        applyUnifiedPresentation(currentProjectData);
     }
 }
 
@@ -848,12 +1147,14 @@ function renderModules(modules) {
             (m) => {
                 const isBlocked = m.status === "blocked";
                 const isAutoFixing = m.status === "auto_fixing";
+                const isActive = ["analyzing", "coding", "testing", "reviewing", "auto_fixing"].includes(m.status);
                 const hasFixHistory = m.auto_fix_history && m.auto_fix_history.length > 0;
                 const wasAutoFixed = hasFixHistory && m.status === "passed";
 
                 let cardClass = " module-card";
+                if (isActive) cardClass += " module-active";
                 if (isBlocked) cardClass = " module-card blocked";
-                else if (isAutoFixing) cardClass = " module-card auto-fixing";
+                else if (isAutoFixing) cardClass = " module-card auto-fixing module-active";
                 else if (wasAutoFixed) cardClass = " module-card auto-fixed";
 
                 // 自动修复状态指示器
@@ -927,11 +1228,15 @@ function renderModules(modules) {
 }
 
 function statusLabel(status) {
+    if (window.DevFlowUX && window.DevFlowUX.MODULE_STATUS_META[status]) {
+        const mm = window.DevFlowUX.MODULE_STATUS_META[status];
+        return `${mm.icon} ${mm.label}`;
+    }
     const map = {
         pending: "等待", analyzing: "分析中", coding: "编码中",
-        testing: "测试中", reviewing: "审查中", auto_fixing: "🔧 自动修复中",
-        passed: "✅ 通过", blocked: "⚠️ 阻塞", failed: "❌ 失败",
-        skipped: "⏭ 跳过", error: "💥 异常",
+        testing: "测试中", reviewing: "审查中", auto_fixing: "自愈修复",
+        passed: "通过", blocked: "阻塞", failed: "失败",
+        skipped: "跳过", error: "异常",
     };
     return map[status] || status;
 }
@@ -1068,13 +1373,178 @@ async function cleanupHistoryBatch() {
     }
 }
 
+const HISTORY_TERMINAL = new Set(["completed", "failed", "needs_review", "cancelled"]);
+
+function projectStatusLabel(status) {
+    const map = {
+        created: "已创建", aligning: "分析中", aligned: "待确认",
+        planning: "规划中", plan_ready: "待确认方案",
+        executing: "构建中", integrating: "集成中", reviewing: "审查中",
+        completed: "已完成", failed: "失败", needs_review: "需介入",
+        cancelled: "已终止",
+    };
+    return map[status] || status;
+}
+
+function resolveHistoryNavigation(projectId) {
+    const clicked = historyProjectsCache.find((p) => p.project_id === projectId);
+    if (!clicked) {
+        return { mode: "live", projectId };
+    }
+
+    const dir = clicked.directory;
+    let activeId = clicked.directory_active_id || null;
+    if (dir && !activeId) {
+        const active = historyProjectsCache.find(
+            (p) => p.directory === dir && HISTORY_ACTIVE.has(p.status) && !p.is_stale
+        );
+        activeId = active?.project_id || null;
+    }
+
+    if (activeId && activeId !== projectId) {
+        return {
+            mode: "live",
+            projectId: activeId,
+            redirected: true,
+            fromId: projectId,
+            reason: "同目录有进行中的项目，已打开当前运行实例",
+        };
+    }
+
+    if (clicked.is_stale) {
+        return { mode: "review", projectId, stale: true };
+    }
+
+    if (HISTORY_TERMINAL.has(clicked.status)) {
+        return { mode: "review", projectId };
+    }
+
+    return { mode: "live", projectId };
+}
+
+function markHistorySelection(projectId, directory) {
+    if (!els.historyList) return;
+    const dir = directory
+        || historyProjectsCache.find((p) => p.project_id === projectId)?.directory
+        || "";
+    els.historyList.querySelectorAll(".history-item").forEach((el) => {
+        el.classList.remove("selected", "selected-dir");
+        if (el.dataset.id === projectId) {
+            el.classList.add("selected");
+        } else if (dir && el.dataset.dir === dir) {
+            el.classList.add("selected-dir");
+        }
+    });
+}
+
+function clearHistorySelection() {
+    els.historyList?.querySelectorAll(".history-item").forEach((el) => {
+        el.classList.remove("selected", "selected-dir");
+    });
+}
+
+function updateReviewModeChrome(project) {
+    let chip = document.getElementById("history-review-chip");
+    if (!chip && els.statusBar) {
+        chip = document.createElement("div");
+        chip.id = "history-review-chip";
+        chip.className = "history-review-chip hidden";
+        const header = els.statusBar.querySelector(".status-header");
+        if (header) header.appendChild(chip);
+    }
+    if (!chip) return;
+    if (currentViewMode !== "review" || !project) {
+        chip.classList.add("hidden");
+        return;
+    }
+    chip.classList.remove("hidden");
+    const dirPart = project.directory ? " · 同目录项目" : "";
+    chip.textContent = `历史回顾${dirPart} — 可查看状态与日志，重新运行将新建实例`;
+}
+
+async function loadRecentLogs(projectId) {
+    if (!els.logContainer) return;
+    els.logContainer.innerHTML = '<div class="empty-state">加载日志…</div>';
+    try {
+        const logs = await requestQueue.fetch(
+            API_BASE + "/api/projects/" + projectId + "/logs/recent?limit=150",
+            { priority: RequestPriority.LOW, timeout: 12000 }
+        );
+        els.logContainer.innerHTML = "";
+        if (!logs || !logs.length) {
+            els.logContainer.innerHTML = '<div class="empty-state">暂无持久化日志</div>';
+            return;
+        }
+        logs.forEach((entry) => appendLog(entry));
+    } catch (e) {
+        els.logContainer.innerHTML = '<div class="empty-state">日志加载失败</div>';
+    }
+}
+
+async function openProjectReview(projectId, options = {}) {
+    currentViewMode = "review";
+    currentProjectId = projectId;
+    stopLiveConnections();
+
+    collapseSidebar();
+    if (els.welcomePanel) els.welcomePanel.classList.add("hidden");
+    els.statusBar.classList.remove("hidden");
+    els.logSection.classList.remove("hidden");
+    els.deliverySection.classList.add("hidden");
+    if (els.btnCancel) els.btnCancel.classList.add("hidden");
+    if (els.phaseStepper) els.phaseStepper.classList.remove("hidden");
+    if (els.floatingAction) els.floatingAction.classList.add("hidden");
+
+    els.currentProjectTitle.textContent = "回顾: " + projectId;
+    els.modulesGrid.innerHTML = "";
+    els.logContainer.innerHTML = "";
+
+    markHistorySelection(projectId);
+
+    if (options.redirected && options.fromId) {
+        showToast(options.reason || "已切换到同目录运行中的项目", "info");
+    }
+
+    await Promise.all([loadRecentLogs(projectId), pollStatus(projectId)]);
+}
+
+function onHistoryItemClick(projectId) {
+    const nav = resolveHistoryNavigation(projectId);
+    currentProjectId = nav.projectId;
+
+    if (nav.mode === "live") {
+        if (nav.redirected) {
+            showToast(nav.reason, "info");
+        }
+        startWatching(nav.projectId);
+        return;
+    }
+
+    openProjectReview(nav.projectId, {
+        redirected: nav.redirected,
+        fromId: nav.fromId,
+        reason: nav.reason,
+    });
+}
+
+function renderDirectoryBadge(p) {
+    if (!p.directory || !p.directory_entry_count || p.directory_entry_count < 2) {
+        return "";
+    }
+    if (p.directory_active_id === p.project_id) {
+        return '<span class="history-dir-badge active-run">同目录 · 当前运行</span>';
+    }
+    if (p.directory_active_id && p.directory_active_id !== p.project_id) {
+        return '<span class="history-dir-badge superseded">同目录 · 另有进行中</span>';
+    }
+    return `<span class="history-dir-badge archived">同目录 · ${p.directory_entry_count} 次</span>`;
+}
+
 function bindHistoryItemEvents() {
     els.historyList.querySelectorAll(".history-item").forEach((el) => {
         el.addEventListener("click", (e) => {
             if (e.target.closest(".history-delete-btn")) return;
-            const id = el.dataset.id;
-            currentProjectId = id;
-            startWatching(id);
+            onHistoryItemClick(el.dataset.id);
         });
     });
     els.historyList.querySelectorAll(".history-delete-btn").forEach((btn) => {
@@ -1098,7 +1568,7 @@ function prependHistoryItem(projectId, requirement, directory) {
         </div>
         <div class="meta">
             <span class="history-id">${projectId.replace("proj-", "")}</span>
-            <span class="history-badge badge created">${statusLabel("created")}</span>
+            <span class="history-badge badge created">${projectStatusLabel("created")}</span>
             <span class="history-time">刚刚</span>
         </div>
         ${directory ? `<div class="dir">📂 ${escapeHtml(directory)}</div>` : ""}`;
@@ -1146,15 +1616,18 @@ function renderHistory(projects) {
             const staleBadge = p.is_stale
                 ? '<span class="history-stale-badge">停滞</span>'
                 : "";
+            const dirBadge = renderDirectoryBadge(p);
+            const dirAttr = p.directory ? ` data-dir="${escapeHtml(p.directory)}"` : "";
             return `
-        <div class="history-item${p.is_stale ? " stale" : ""}" data-id="${p.project_id}" data-status="${p.status}"${p.directory ? ` data-dir="${escapeHtml(p.directory)}"` : ""}>
+        <div class="history-item${p.is_stale ? " stale" : ""}" data-id="${p.project_id}" data-status="${p.status}"${dirAttr}>
             <div class="history-item-row">
                 <div class="req">${escapeHtml(p.requirement)}</div>
                 <button type="button" class="history-delete-btn" data-id="${p.project_id}" title="删除">×</button>
             </div>
             <div class="meta">
                 <span class="history-id">${p.project_id.replace("proj-", "")}</span>
-                <span class="history-badge badge ${p.status}">${statusLabel(p.status)}</span>
+                <span class="history-badge badge ${p.status}">${projectStatusLabel(p.status)}</span>
+                ${dirBadge}
                 ${staleBadge}
                 ${p.created_at ? `<span class="history-time">${timeAgo(p.created_at)}</span>` : ""}
             </div>
@@ -1164,6 +1637,9 @@ function renderHistory(projects) {
         .join("");
 
     bindHistoryItemEvents();
+    if (currentProjectId) {
+        markHistorySelection(currentProjectId);
+    }
 }
 
 // ── 测试结果辅助 ────────────────────────────────────
@@ -2111,6 +2587,7 @@ function setupNewProjectButton() {
 
 function resetToInitialState() {
     liveModulesByName = {};
+    currentViewMode = "live";
     stopWatching();
     currentProjectId = null;
     currentProjectData = null;
@@ -2125,6 +2602,12 @@ function resetToInitialState() {
     if (els.phaseStepper) els.phaseStepper.classList.add("hidden");
     if (els.floatingAction) els.floatingAction.classList.add("hidden");
     if (els.btnCancel) els.btnCancel.classList.add("hidden");
+    if (els.statusHint) els.statusHint.classList.add("hidden");
+    if (els.observabilityRail) els.observabilityRail.classList.add("hidden");
+    if (els.actionSuggestBar) els.actionSuggestBar.classList.add("hidden");
+    setActiveAgentBadge(null);
+    const reviewChip = document.getElementById("history-review-chip");
+    if (reviewChip) reviewChip.classList.add("hidden");
     // 隐藏所有面板
     const panels = ["alignment-panel", "plan-comparison", "dependency-panel", "version-panel", "ai-stream-section", "error-stats-section"];
     panels.forEach(id => {
@@ -2149,7 +2632,10 @@ async function cancelProject() {
             method: "POST",
             priority: RequestPriority.CRITICAL,
         });
-        showToast("项目已终止", "error");
+        currentViewMode = "review";
+        showToast("项目已终止 — 可在此回顾或重新运行", "error");
+        await pollStatus(currentProjectId);
+        loadHistory();
     } catch (e) {
         showToast("终止失败: " + e.message, "error");
         if (els.btnCancel) {
@@ -2161,11 +2647,13 @@ async function cancelProject() {
 
 function collapseSidebar() {
     if (els.sidebar) els.sidebar.classList.add("workflow-active");
+    if (els.main) els.main.classList.add("workflow-active");
     if (els.phaseStepper) els.phaseStepper.classList.remove("hidden");
 }
 
 function expandSidebar() {
     if (els.sidebar) els.sidebar.classList.remove("workflow-active");
+    if (els.main) els.main.classList.remove("workflow-active");
 }
 
 function updatePhaseStepper(phase) {
@@ -2219,9 +2707,11 @@ function handleStateEvent(stateEvent) {
 
     // Toast 通知关键事件
     const toastMessages = {
-        "aligned": { msg: "需求对齐完成，请确认执行计划", type: "info" },
-        "plan_ready": { msg: "方案规划完成，请选择方案", type: "info" },
-        "completed": { msg: "🎉 项目构建完成！", type: "success" },
+        "aligned": { msg: "需求对齐完成，请确认计划", type: "info" },
+        "plan_ready": { msg: "方案已就绪，请确认执行方案", type: "info" },
+        "executing": { msg: "进入模块构建阶段", type: "info" },
+        "integrating": { msg: "开始项目集成", type: "info" },
+        "completed": { msg: "项目构建完成，可下载交付物", type: "success" },
     };
     if (toastMessages[stateEvent]) {
         showToast(toastMessages[stateEvent].msg, toastMessages[stateEvent].type);
@@ -2281,9 +2771,10 @@ function animateCardsIn(container) {
 function updateHistoryItemStatus(projectId, status) {
     const item = els.historyList.querySelector(`.history-item[data-id="${projectId}"]`);
     if (!item) return;
+    item.dataset.status = status;
     const badge = item.querySelector(".history-badge");
     if (badge) {
-        badge.textContent = statusLabel(status);
+        badge.textContent = projectStatusLabel(status);
         badge.className = "history-badge badge " + status;
     }
 }
@@ -2383,38 +2874,68 @@ function scrollToLogSection() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// 实时 AI 输出流面板
+// 紧凑 AI token 流（打字机效果，滚动窗口，不堆积历史）
 // ═══════════════════════════════════════════════════════════
 
 let aiStreamEventSource = null;
-let aiStreamPaused = false;
 let currentAiAgent = "";
+/** 当前 Agent 会话内保留的最大字符数 */
+const AI_STREAM_MAX_CHARS = 2000;
+const AI_STREAM_TRIM_TO = 1400;
 
-// Agent 颜色映射
 const AGENT_COLORS = {
-    "alignment_agent": { bg: "#ede9fe", border: "#8b5cf6", label: "📋 需求对齐" },
-    "business_planner": { bg: "#fef3c7", border: "#f59e0b", label: "📊 商业策划" },
-    "planner": { bg: "#dbeafe", border: "#3b82f6", label: "📝 PM 规划" },
-    "module_agents": { bg: "#d1fae5", border: "#10b981", label: "💻 模块编码" },
-    "reviewer": { bg: "#fce7f3", border: "#ec4899", label: "🔍 审查" },
-    "repair_agent": { bg: "#fee2e2", border: "#ef4444", label: "🔧 自愈修复" },
-    "integrator": { bg: "#e0e7ff", border: "#6366f1", label: "🔗 集成" },
-    "global_reviewer": { bg: "#f0fdf4", border: "#22c55e", label: "🌐 全局审查" },
-    "context_analyzer": { bg: "#f5f5f4", border: "#78716c", label: "📂 上下文分析" },
+    "alignment_agent": { border: "#8b5cf6", label: "需求对齐" },
+    "business_planner": { border: "#f59e0b", label: "商业策划" },
+    "planner": { border: "#3b82f6", label: "PM 规划" },
+    "module_agents": { border: "#10b981", label: "模块编码" },
+    "reviewer": { border: "#ec4899", label: "审查" },
+    "repair_agent": { border: "#ef4444", label: "自愈修复" },
+    "integrator": { border: "#6366f1", label: "集成" },
+    "global_reviewer": { border: "#22c55e", label: "全局审查" },
+    "context_analyzer": { border: "#78716c", label: "上下文分析" },
 };
+
+function _aiStreamEls() {
+    return {
+        section: document.getElementById("ai-stream-section"),
+        container: document.getElementById("ai-stream-container"),
+        live: document.getElementById("ai-stream-live"),
+        cursor: document.getElementById("ai-stream-cursor"),
+        tag: document.getElementById("ai-stream-agent-tag"),
+        status: document.getElementById("ai-stream-status"),
+    };
+}
+
+function resetAiStreamView(clearAgent = false) {
+    const { section, live, status } = _aiStreamEls();
+    if (live) live.textContent = "";
+    if (status) status.textContent = "";
+    if (section) section.classList.remove("is-streaming");
+    if (clearAgent) currentAiAgent = "";
+}
+
+function trimAiStreamBuffer(liveEl) {
+    if (!liveEl || liveEl.textContent.length <= AI_STREAM_MAX_CHARS) return;
+    liveEl.textContent = "…" + liveEl.textContent.slice(-AI_STREAM_TRIM_TO);
+}
+
+function setAiStreamAgent(agentKey) {
+    const { tag } = _aiStreamEls();
+    const info = AGENT_COLORS[agentKey] || { border: "#78716c", label: agentKey || "Agent" };
+    if (tag) {
+        tag.textContent = info.label;
+        tag.style.cssText = `border-color:${info.border};color:${info.border};`;
+    }
+    if (agentKey) setActiveAgentBadge(agentKey);
+}
 
 function connectAiStream(projectId) {
     if (aiStreamEventSource) {
         aiStreamEventSource.close();
     }
-    aiStreamPaused = false;
-    const section = document.getElementById("ai-stream-section");
+    const { section, container } = _aiStreamEls();
     if (section) section.classList.remove("hidden");
-
-    const container = document.getElementById("ai-stream-container");
-    const tagEl = document.getElementById("ai-stream-agent-tag");
-    // 清空之前的输出
-    container.innerHTML = "";
+    resetAiStreamView(true);
 
     aiStreamEventSource = new EventSource(API_BASE + "/api/projects/" + projectId + "/stream-ai");
 
@@ -2423,48 +2944,45 @@ function connectAiStream(projectId) {
             const entry = JSON.parse(event.data);
             if (entry.type === "heartbeat") return;
 
-            // 换 Agent 时插入分界条
-            if (entry.agent && entry.agent !== currentAiAgent && currentAiAgent !== "") {
-                const divider = document.createElement("div");
-                divider.className = "ai-agent-divider";
-                divider.textContent = `── 切换到 ${AGENT_COLORS[entry.agent]?.label || entry.agent} ──`;
-                container.appendChild(divider);
-            }
-
-            const div = document.createElement("span");
-            div.className = "ai-token";
+            const els = _aiStreamEls();
+            const agent = entry.agent || currentAiAgent;
 
             if (entry.type === "token") {
-                // Token 追加到当前行
-                const color = AGENT_COLORS[entry.agent] || { bg: "#f5f5f4", border: "#78716c" };
-                div.style.cssText = `background:${color.bg};border-left:3px solid ${color.border};`;
-                div.textContent = entry.content;
-                currentAiAgent = entry.agent;
-
-                // 更新 Agent 标签
-                if (tagEl && entry.agent) {
-                    tagEl.textContent = color.label || entry.agent;
-                    tagEl.style.cssText = `background:${color.bg};color:${color.border};`;
+                if (agent && agent !== currentAiAgent) {
+                    currentAiAgent = agent;
+                    if (els.live) els.live.textContent = "";
+                    setAiStreamAgent(agent);
+                }
+                if (els.section) els.section.classList.add("is-streaming");
+                if (els.status) els.status.textContent = "输出中…";
+                if (els.live && entry.content) {
+                    els.live.textContent += entry.content;
+                    trimAiStreamBuffer(els.live);
+                }
+                if (els.container) {
+                    els.container.scrollTop = els.container.scrollHeight;
                 }
             } else if (entry.type === "notification") {
-                div.className = "ai-notification";
-                div.textContent = entry.content;
+                if (agent && agent !== currentAiAgent) {
+                    currentAiAgent = agent;
+                    if (els.live) els.live.textContent = "";
+                    setAiStreamAgent(agent);
+                }
+                if (els.status && entry.content) {
+                    els.status.textContent = entry.content.replace(/^[^\s]+\s*/, "");
+                }
             } else if (entry.type === "done") {
-                div.className = "ai-done";
-                div.textContent = "✅ 输出完成";
+                if (els.section) els.section.classList.remove("is-streaming");
+                if (els.status) els.status.textContent = "完成";
             } else if (entry.type === "error") {
-                div.className = "ai-error";
-                div.textContent = "❌ " + entry.content;
-            }
-
-            container.appendChild(div);
-
-            // 自动滚屏（除非暂停）
-            if (!aiStreamPaused) {
-                container.scrollTop = container.scrollHeight;
+                if (els.section) els.section.classList.remove("is-streaming");
+                if (els.status) els.status.textContent = "出错";
+                if (els.live && entry.content) {
+                    els.live.textContent += "\n" + entry.content;
+                }
             }
         } catch (e) {
-            // skip parse errors
+            // skip
         }
     };
 
@@ -2473,28 +2991,14 @@ function connectAiStream(projectId) {
     };
 }
 
-function toggleAiPause() {
-    aiStreamPaused = !aiStreamPaused;
-    const btn = document.getElementById("btn-ai-pause");
-    if (btn) {
-        btn.textContent = aiStreamPaused ? "▶️ 继续" : "⏯️ 暂停";
-        btn.classList.toggle("paused", aiStreamPaused);
-    }
-}
-
-function clearAiOutput() {
-    const container = document.getElementById("ai-stream-container");
-    if (container) container.innerHTML = "";
-    currentAiAgent = "";
-}
-
 function disconnectAiStream() {
     if (aiStreamEventSource) {
         aiStreamEventSource.close();
         aiStreamEventSource = null;
     }
-    const section = document.getElementById("ai-stream-section");
+    const { section } = _aiStreamEls();
     if (section) section.classList.add("hidden");
+    resetAiStreamView(true);
 }
 
 // ═══════════════════════════════════════════════════════════
