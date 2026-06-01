@@ -1,0 +1,18 @@
+#!/bin/sh
+# DevFlow CI pre-commit hook (Git for Windows / Git Bash)
+cd "$(git rev-parse --show-toplevel)" || exit 1
+
+if [ -f venv/Scripts/python.exe ]; then
+  PY=venv/Scripts/python.exe
+elif [ -f venv/bin/python ]; then
+  PY=venv/bin/python
+else
+  PY=python
+fi
+
+$PY -m py_compile main.py config.py || exit 1
+$PY -m py_compile workflow/executor.py workflow/auto_fix.py workflow/error_logger.py || exit 1
+$PY -m py_compile memory/case_store.py database/models.py || exit 1
+$PY -m pytest tests/ -q --tb=no || exit 1
+
+exit 0

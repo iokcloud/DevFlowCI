@@ -10,8 +10,8 @@ if [ ! -d .git ]; then
 fi
 
 cat > .git/hooks/pre-commit << 'EOF'
-#!/usr/bin/env bash
-cd "$(git rev-parse --show-toplevel)"
+#!/bin/sh
+cd "$(git rev-parse --show-toplevel)" || exit 1
 bash scripts/pre_commit_check.sh
 EOF
 

@@ -1,37 +1,39 @@
 @echo off
-REM DevFlow CI 提交前自检（Windows）— 用法: scripts\pre_commit_check.bat
+REM DevFlow CI pre-commit check (Windows CMD). Usage: scripts\pre_commit_check.bat
 
-chcp 65001 >nul
 cd /d "%~dp0\.."
 set FAILED=0
 
 echo.
-echo DevFlow CI pre-commit 自检
+echo DevFlow CI pre-commit check
 echo.
 
-echo 阻断级:
-
-python -m py_compile main.py config.py >nul 2>&1
-if errorlevel 1 (echo   [py_compile main] FAIL & set FAILED=1) else (echo   [py_compile main] OK)
-
-python -m py_compile workflow\executor.py workflow\auto_fix.py workflow\error_logger.py >nul 2>&1
-if errorlevel 1 (echo   [py_compile workflow] FAIL & set FAILED=1) else (echo   [py_compile workflow] OK)
-
-python -m py_compile memory\case_store.py database\models.py >nul 2>&1
-if errorlevel 1 (echo   [py_compile core] FAIL & set FAILED=1) else (echo   [py_compile core] OK)
-
-if exist venv\Scripts\activate.bat (
-    call venv\Scripts\activate.bat
-    pytest tests/ -q --tb=no >nul 2>&1
-    if errorlevel 1 (echo   [pytest] FAIL & set FAILED=1) else (echo   [pytest] OK)
+if exist venv\Scripts\python.exe (
+    set PY=venv\Scripts\python.exe
 ) else (
-    echo   [pytest] SKIP ^(no venv^)
+    set PY=python
 )
+
+echo [py_compile main]
+%PY% -m py_compile main.py config.py
+if errorlevel 1 set FAILED=1
+
+echo [py_compile workflow]
+%PY% -m py_compile workflow\executor.py workflow\auto_fix.py workflow\error_logger.py
+if errorlevel 1 set FAILED=1
+
+echo [py_compile core]
+%PY% -m py_compile memory\case_store.py database\models.py
+if errorlevel 1 set FAILED=1
+
+echo [pytest]
+%PY% -m pytest tests/ -q --tb=no
+if errorlevel 1 set FAILED=1
 
 echo.
 if "%FAILED%"=="1" (
-    echo 检查未通过，请修复后再提交
+    echo CHECK FAILED
     exit /b 1
 )
-echo 所有检查通过
+echo ALL CHECKS PASSED
 exit /b 0
