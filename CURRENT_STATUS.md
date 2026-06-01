@@ -1,14 +1,14 @@
 # 项目当前状态
 
-> 最后更新：2026-06-01（会话: 20260601-13）
-> 更新原因：weekly 增加 multi E2E + 生产配置文档
+> 最后更新：2026-06-01（会话: 20260601-14）
+> 更新原因：默认 LLM 切换为 deepseek-v4-pro
 
 ## 基本信息
-- 当前阶段：**v0.4.7 已发布**（Unreleased：weekly multi 回归）
+- 当前阶段：**v0.4.7 已发布**（Unreleased：v4-pro 默认 + weekly multi）
 - 最后完成的功能：
-  - ✅ Weekly Business E2E 含 **full + multi(cap=2)** 双 job 并行
-  - ✅ [Release v0.4.7](https://github.com/iokcloud/DevFlowCI/releases/tag/v0.4.7)
-  - ✅ 多模块商业 E2E（run **26761439750**，2 passed / 0 blocked）
+  - ✅ 默认模型 **deepseek-v4-pro**（config + .env.example + 文档）
+  - ✅ E2E workflow 超时上调（适配 Pro 耗时）
+  - ✅ Weekly Business E2E full + multi(cap=2) 并行
 - 正在进行的任务：无
 
 ## 模块完成度

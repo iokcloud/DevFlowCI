@@ -13,7 +13,7 @@ env:
 jobs:
   business-multi:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
 
@@ -68,7 +68,7 @@ jobs:
         if: steps.key.outputs.skip != 'true'
         env:
           TEST_FLOW_BASE: http://127.0.0.1:8000
-          TEST_FLOW_TIMEOUT: "2400"
+          TEST_FLOW_TIMEOUT: "4800"
           TEST_FLOW_BUSINESS_MODE: multi
           TEST_FLOW_EXPECT_MODULES: "2"
           BUSINESS_MVP_MAX_MODULES: "2"

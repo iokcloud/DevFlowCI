@@ -25,7 +25,7 @@ jobs:
   smoke:
     if: github.event_name == 'schedule' || inputs.scenario == 'smoke' || inputs.scenario == ''
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
@@ -76,7 +76,7 @@ jobs:
         if: steps.key.outputs.skip != 'true'
         env:
           TEST_FLOW_BASE: http://127.0.0.1:8000
-          TEST_FLOW_TIMEOUT: "900"
+          TEST_FLOW_TIMEOUT: "1800"
         run: python test_flow.py
 
       - name: Notify on failure
@@ -101,7 +101,7 @@ jobs:
   business:
     if: github.event_name == 'workflow_dispatch' && inputs.scenario == 'business'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 
@@ -152,7 +152,7 @@ jobs:
         if: steps.key.outputs.skip != 'true'
         env:
           TEST_FLOW_BASE: http://127.0.0.1:8000
-          TEST_FLOW_TIMEOUT: "1800"
+          TEST_FLOW_TIMEOUT: "3600"
         run: python test_flow_business.py
 
       - name: Notify on failure

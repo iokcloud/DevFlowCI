@@ -5,6 +5,8 @@
 ## [Unreleased]
 
 ### 变更
+- 默认 LLM 改为 `deepseek-v4-pro`（`.env.example`、`config.py`）
+- E2E workflow 超时上调以适配 Pro 推理耗时
 - Weekly Business E2E 增加 `business-multi` job（cap=2，与 full 并行）
 - `business-multi-e2e.yml` 失败时 Slack 通知
 - `.env.example` / `docs/DEVELOPMENT.md` 补充 `BUSINESS_MVP_MAX_MODULES` 生产建议

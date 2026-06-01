@@ -23,7 +23,22 @@ pip install -r requirements.txt
 # 3. 环境变量
 cp .env.example .env
 # 编辑 .env，填入 DEEPSEEK_API_KEY
+# 默认 DEEPSEEK_MODEL=deepseek-v4-pro（高质量）；快速冒烟可改为 deepseek-v4-flash
 ```
+
+### LLM 模型（默认 v4-pro）
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `DEEPSEEK_MODEL` | `deepseek-v4-pro` | 全部 Agent 共用；须在 **启动服务前** 写入 `.env` |
+| `DEEPSEEK_BASE_URL` | `https://api.deepseek.com/v1` | OpenAI 兼容端点 |
+
+**生产建议（v4-pro）**：
+- 商业 MVP 保持 `BUSINESS_MVP_MAX_MODULES=1` 或 `2`
+- E2E / 本地测试适当加长超时，例如 `TEST_FLOW_TIMEOUT=3600`
+- Pro 单次交付约为 chat 的 **2～4 倍** 耗时，属正常现象
+
+快速迭代（省成本）可临时改：`DEEPSEEK_MODEL=deepseek-v4-flash` 或 `deepseek-chat`，改后重启服务。
 
 ## 启动服务
 
@@ -78,7 +93,7 @@ python test_flow.py
 > 不要写 `venv\Scripts\python.exe test_flow.py` 这类绝对路径——不是卡住的原因，但不便移植。
 > 若终端报编码错误，请用 `scripts\test_flow.bat`（已设 UTF-8）或 Git Bash。
 
-测试默认最长等待 **900 秒**（LLM 多轮调用较慢）。每 15 秒会输出心跳，状态不变不代表卡死。
+测试默认最长等待 **900 秒**（LLM 多轮调用较慢）。使用 **deepseek-v4-pro** 时建议设为 **1800～3600**。
 
 环境变量：`TEST_FLOW_TIMEOUT`、`TEST_FLOW_HEARTBEAT`、`TEST_FLOW_POLL_SEC`
 
