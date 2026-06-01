@@ -90,6 +90,23 @@ class TestHelpers:
         assert len(out) == 1
         assert "validate_record" in out[0]["description"]
 
+    def test_sanitize_business_multi_modules(self):
+        from workflow.executor import _sanitize_business_multi_modules
+
+        modules = [
+            {"module_name": "wechat", "description": "小程序", "type": "frontend"},
+            {"module_name": "ml", "description": "模型训练", "type": "backend"},
+        ]
+        state = {
+            "mvp_max_modules": 2,
+            "requirement": "健康录入与订阅",
+            "alignment_result": {"plan_type": "business"},
+        }
+        out = _sanitize_business_multi_modules(modules, state)
+        assert len(out) == 2
+        assert all(m["type"] == "backend" for m in out)
+        assert all(m["dependencies"] == [] for m in out)
+
     def test_exec_tests_passed(self):
         from workflow.executor import _exec_tests_passed
 

@@ -1181,8 +1181,8 @@ def _build_business_multi_module_requirement(
     items = "；".join(f"模块{i + 1}「{a}」" for i, a in enumerate(actions))
     tech_requirement = (
         f"商业计划「{phase_name}」技术 MVP（最多 {cap_limit} 个独立 Python 模块）：{items}。"
-        "每个模块单文件≤120行，含 type hints、docstring、pytest，可独立运行测试；"
-        "禁止 SQLite/CLI/多子系统；模块间松耦合。"
+        "每个模块均为 backend 类型：单文件≤120行的纯 Python 函数或类，含 type hints、docstring、pytest；"
+        "禁止 frontend/微信小程序/ML 训练/SQLite/CLI；模块间松耦合、无依赖优先。"
     )
     if exec_summary:
         tech_requirement = f"背景：{exec_summary[:300]}。{tech_requirement}"

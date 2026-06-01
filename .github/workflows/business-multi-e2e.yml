@@ -45,12 +45,12 @@ jobs:
         run: |
           cp .env.example .env
           sed -i "s/your_key_here/$DEEPSEEK_API_KEY/" .env
-          echo "BUSINESS_MVP_MAX_MODULES=3" >> .env
+          echo "BUSINESS_MVP_MAX_MODULES=2" >> .env
 
       - name: Start server
         if: steps.key.outputs.skip != 'true'
         env:
-          BUSINESS_MVP_MAX_MODULES: "3"
+          BUSINESS_MVP_MAX_MODULES: "2"
         run: |
           export $(grep -v '^#' .env | xargs)
           python -m uvicorn main:app --host 127.0.0.1 --port 8000 --log-level warning &
@@ -71,7 +71,7 @@ jobs:
           TEST_FLOW_TIMEOUT: "2400"
           TEST_FLOW_BUSINESS_MODE: multi
           TEST_FLOW_EXPECT_MODULES: "2"
-          BUSINESS_MVP_MAX_MODULES: "3"
+          BUSINESS_MVP_MAX_MODULES: "2"
         run: python test_flow_business.py
 
       - name: Upload deliveries on failure

@@ -1080,6 +1080,40 @@ def _apply_mvp_module_cap(
     return modules[:cap]
 
 
+def _sanitize_business_multi_modules(
+    modules: list[dict[str, Any]],
+    state: WorkflowState,
+) -> list[dict[str, Any]]:
+    """商业 cap>1 时强制 backend 轻量模块，避免 PM 产出前端/ML 导致全 blocked。"""
+    cap = _resolve_mvp_module_cap(state)
+    alignment = state.get("alignment_result") or {}
+    if (
+        cap is None
+        or cap <= 1
+        or not isinstance(alignment, dict)
+        or alignment.get("plan_type") != "business"
+    ):
+        return modules
+
+    requirement = (state.get("requirement") or "").strip()
+    sanitized: list[dict[str, Any]] = []
+    for i, m in enumerate(modules[:cap]):
+        name = m.get("module_name") or m.get("module") or f"business_mvp_{i + 1}"
+        pm_hint = (m.get("description") or "")[:100]
+        sanitized.append({
+            "module_name": name,
+            "description": (
+                f"商业 MVP 后端模块 {i + 1}/{cap}：实现一项小型可测试 Python 能力。"
+                f"需求上下文：{requirement[:350]}。"
+                f"（PM 摘要：{pm_hint}）"
+                "单文件≤120行，仅标准库+pytest，不要前端/ML/SQLite。"
+            ),
+            "dependencies": [],
+            "type": "backend",
+        })
+    return sanitized if sanitized else modules
+
+
 # ── 工作流执行器 ──────────────────────────────────────────
 
 class WorkflowExecutor:
@@ -1364,8 +1398,8 @@ class WorkflowExecutor:
                     planning_context += (
                         f"\n\n【MVP硬性约束】最多拆解 {mvp_cap} 个模块，"
                         "请合并相近功能，优先最小可行产品。"
-                        f"\n请规划恰好 {mvp_cap} 个模块（或更少），"
-                        "每个模块对应一项独立、可测试的核心能力。"
+                        f"\n请规划恰好 {mvp_cap} 个 backend 模块（或更少），"
+                        "每个模块为一个小型 Python 函数/类；禁止 frontend/database/ML。"
                     )
                 elif mvp_cap == 1:
                     planning_context += (
@@ -1430,6 +1464,7 @@ class WorkflowExecutor:
                 original_count = len(modules)
                 modules = _apply_mvp_module_cap(modules, state)
                 modules = _normalize_business_mvp_modules(modules, state)
+                modules = _sanitize_business_multi_modules(modules, state)
                 if len(modules) < original_count:
                     await push_log(
                         pid, "INFO",
@@ -1897,6 +1932,7 @@ class WorkflowExecutor:
             and (mvp_cap or 0) > 1
         )
         use_mvp_test_gate = mvp_mode or business_mvp_relaxed
+        compact_mvp = mvp_mode or business_mvp_relaxed
 
         await push_log(
             pid, "INFO",
@@ -1914,7 +1950,7 @@ class WorkflowExecutor:
                 module_name=module_name,
             )
             spec = await self._modules.analyze(
-                module_name, description, context, mvp_mode=mvp_mode,
+                module_name, description, context, mvp_mode=compact_mvp,
             )
 
             # ── 编码 + 测试 + 审查 循环（前 MAX_REVIEW_RETRIES 次正常重试） ──
@@ -1939,7 +1975,7 @@ class WorkflowExecutor:
                     module_name=module_name,
                 )
                 code = await self._modules.code(
-                    module_name, spec, feedback, mvp_mode=mvp_mode,
+                    module_name, spec, feedback, mvp_mode=compact_mvp,
                 )
 
                 await _update_module_status(pid, module_name, "testing")
@@ -1966,7 +2002,7 @@ class WorkflowExecutor:
                     code.code,
                     code.test_code,
                     retry_count=retry,
-                    mvp_mode=mvp_mode,
+                    mvp_mode=compact_mvp,
                 )
 
                 exec_test_result: dict[str, Any] | None = None
@@ -2098,11 +2134,11 @@ class WorkflowExecutor:
                             logic_flow=spec_obj.get("logic_flow", ""),
                             error_handling=spec_obj.get("error_handling", ""),
                         )
-                    return await self._modules.code(mn, spec_obj, fb, mvp_mode=mvp_mode)
+                    return await self._modules.code(mn, spec_obj, fb, mvp_mode=compact_mvp)
 
                 async def _do_review(mn: str, summary: str, c: str, tc: str, retry: int):
                     return await self._reviewer.review(
-                        mn, summary, c, tc, retry_count=retry, mvp_mode=mvp_mode,
+                        mn, summary, c, tc, retry_count=retry, mvp_mode=compact_mvp,
                     )
 
                 async def _do_repair(moutput: dict, hcases: list):
