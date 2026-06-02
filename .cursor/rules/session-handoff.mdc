@@ -1,0 +1,47 @@
+---
+description: 新 Chat 接续 — 先读 HANDOFF/CURRENT_STATUS，单主题、小步提交
+alwaysApply: true
+---
+
+# DevFlowCI 会话接续
+
+## 新对话开始时（必须）
+
+1. 读 `HANDOFF.md`（自动生成接续入口）
+2. 读 `CURRENT_STATUS.md`（`<!-- AUTO-CHECKPOINT:START -->` 区块为机器刷新）
+3. 若有，读最新 `sessions/*/summary.md`
+4. 运行或假设已运行 `git status`；未明确要求 **不要 commit**
+
+## 本 Chat 原则
+
+- **单主题**：只做用户在本 Chat 声明的「唯一目标」
+- **少扫库**：优先 `@` 具体文件，避免全仓库 explore
+- **小步改动**：匹配现有风格，不做无关重构
+- **中文回复**（用户规则）
+
+## 换 Chat / 会话结束前（提醒用户）
+
+运行：
+
+```powershell
+scripts\session_checkpoint.bat "下一 chat 的目标"
+```
+
+（实现：`scripts/session_checkpoint.py`）
+
+并手工补全 `sessions/<id>/summary.md` 的「已完成 / 下一步」。
+
+## 关键路径速查
+
+| 主题 | 位置 |
+|------|------|
+| 迭代 | `main.py` — `/iterate`, `/finalize` |
+| 文档同步 | `workflow/document_sync.py` |
+| 状态重建 | `workflow/state_builder.py` |
+| 前端 | `static/app.js`, `static/ux-states.js` |
+| 记忆索引 | `docs/MEMORY_INDEX.md` |
+
+## 刻意默认
+
+- 暂缓：全自动 autopilot / 无 scope 全量重跑
+- 交付改进：优先同 `project_id` 迭代，非新建项目

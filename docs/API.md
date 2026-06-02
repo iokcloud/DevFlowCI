@@ -68,6 +68,8 @@
 | GET | `/api/maintenance/error-stats` | 错误统计 |
 | POST | `/api/maintenance/analyze-errors` | LLM 批量错误分析 |
 | POST | `/api/maintenance/clean-logs` | 清理已解决日志 |
+| GET | `/api/maintenance/delivery-suggestions` | 扫描 deliveries 可删除建议 |
+| POST | `/api/maintenance/delivery-cleanup` | 按建议路径删除冗余交付物 |
 
 ## 其他
 

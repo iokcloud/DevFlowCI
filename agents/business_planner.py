@@ -69,7 +69,11 @@ class BusinessPlannerAgent:
     def __init__(self) -> None:
         self._llm = create_llm_reasoning()
 
-    def _build_prompt(self, structured_context: dict[str, Any]) -> str:
+    def _build_prompt(
+        self,
+        structured_context: dict[str, Any],
+        user_requirement: str = "",
+    ) -> str:
         parts: list[str] = [BUSINESS_PLANNER_PROMPT]
 
         overall = structured_context.get("overall_summary", "")
@@ -78,17 +82,27 @@ class BusinessPlannerAgent:
 
         analyzed = structured_context.get("analyzed_files", [])
         if analyzed:
-            parts.append(f"\n## 📄 文档摘要（共 {len(analyzed)} 个文件）")
+            parts.append(f"\n## 📄 目录资料摘要（共 {len(analyzed)} 个文件）")
             for af in analyzed:
                 parts.append(f"\n### {af['file']}\n{af['summary']}")
 
-        parts.append("\n请严格基于以上文档内容，生成商业计划 JSON。")
+        if user_requirement.strip():
+            parts.append(
+                f"\n## 用户文字指令（与以上目录资料一并纳入商业计划）\n{user_requirement.strip()}"
+            )
+        else:
+            parts.append(
+                "\n## 用户文字指令\n（未单独填写，请主要依据目录资料；若有代码文件列表亦作背景参考）"
+            )
+
+        parts.append("\n请综合文字指令与目录资料，生成商业计划 JSON。")
         return "\n\n".join(parts)
 
     async def plan(
         self,
         structured_context: dict[str, Any],
         project_memory_text: str = "",
+        user_requirement: str = "",
     ) -> dict[str, Any]:
         """生成商业计划建议书（主入口方法）。
 
@@ -99,12 +113,13 @@ class BusinessPlannerAgent:
         Returns:
             商业计划 JSON，格式见 BUSINESS_PLANNER_PROMPT
         """
-        return await self.generate(structured_context, project_memory_text)
+        return await self.generate(structured_context, project_memory_text, user_requirement)
 
     async def generate(
         self,
         structured_context: dict[str, Any],
         project_memory_text: str = "",
+        user_requirement: str = "",
     ) -> dict[str, Any]:
         """生成商业计划建议书（底层实现，与 plan() 等效）。
 
@@ -115,7 +130,7 @@ class BusinessPlannerAgent:
         Returns:
             商业计划 JSON
         """
-        prompt = self._build_prompt(structured_context)
+        prompt = self._build_prompt(structured_context, user_requirement)
         if project_memory_text:
             prompt += f"\n\n{project_memory_text}"
 

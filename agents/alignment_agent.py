@@ -21,10 +21,10 @@ ALIGNMENT_SYSTEM_PROMPT = """你是一位严格的需求分析师。你的任务
 
 ## 核心约束（违反将导致输出无效）
 
-1. **文档优先**：你只能基于下面提供的「项目文档摘要」和「用户需求」生成计划。不得凭空添加任何文档中未提到的技术栈、模块或修复点。
-2. **禁止通用建议**：不得输出"改善代码质量"、"增强日志系统"、"添加单元测试"等通用建议，除非文档中明确描述了相关痛点。
-3. **信息不足即声明**：如果文档信息不足以生成有意义的计划，直接输出 `{"status": "insufficient_info", "message": "具体原因"}`，不要强行编造。
-4. **关联溯源**：plan 中每个模块的 reason 字段必须引用至少一个文档文件名或具体段落，说明该建议的来源。
+1. **合并分析**：若同时提供「用户文字指令」与「目录资料摘要」，须将二者合并理解，plan 须同时回应文字目标与目录内容。
+2. **目录资料优先（有扫描结果时）**：plan 中的模块须与文档摘要、代码结构或用户需求相关。
+3. **纯文字（无目录/无资料）**：若「用户文字指令」非空，必须基于该指令生成可执行 plan（至少 1 个模块），**不得**返回 insufficient_info。
+4. **信息不足**：仅当文字指令为空且目录无任何可用资料（无文档摘要且无源代码文件列表）时，才返回 insufficient_info。
 
 ## 输出格式（严格 JSON，不要包含其他文字）
 
@@ -62,11 +62,10 @@ ALIGNMENT_SYSTEM_PROMPT = """你是一位严格的需求分析师。你的任务
 
 ## 规则
 
-1. 每个 module.description 必须能在提供的文档摘要中找到直接依据。
-2. reason 字段必须标注来源（文档文件名或段落）。
-3. 如果用户需求为空且目录文档也不足 → 必须返回 insufficient_info。
-4. 如果文档中提到了技术栈（如 FastAPI、React），在 assumptions 中引用；否则不要假设。
-5. plan 可以为空数组（如果确实没有需要修改的地方），但这与 insufficient_info 不同——前者是"分析完毕，无需修改"，后者是"无法分析"。
+1. 有文档时，module.reason 尽量标注文档来源；纯需求模式可写「来自用户需求」。
+2. 用户需求非空时，必须输出含 plan 数组的正常 JSON，禁止 insufficient_info。
+3. 用户需求为空且目录文档也不足 → 必须返回 insufficient_info。
+4. plan 可以为空数组仅当「已分析完毕且确实无需修改」；与 insufficient_info 不同。
 """
 
 # ── 构建 Prompt ──────────────────────────────────────────
@@ -100,24 +99,49 @@ def _build_structured_prompt(
         parts.append(f"项目类型: {project_type}")
 
     if analyzed_files:
-        parts.append(f"\n## 📄 文档摘要（共 {len(analyzed_files)} 个文件，计划必须基于这些内容）")
+        parts.append(f"\n## 📄 目录资料摘要（共 {len(analyzed_files)} 个文件）")
         for af in analyzed_files:
             parts.append(f"\n### {af['file']}\n{af['summary']}")
 
     if source_files:
-        parts.append(f"\n## 📦 源代码文件列表\n{', '.join(source_files[:20])}")
+        parts.append(f"\n## 📦 目录内源代码文件（共 {len(source_files)} 个，供技术对齐参考）")
+        parts.append(", ".join(source_files[:20]))
+        if len(source_files) > 20:
+            parts.append(f"... 等 {len(source_files)} 个文件")
 
-    if no_docs and not requirement.strip():
+    dir_has_context = bool(
+        analyzed_files or source_files or (overall_summary and not no_docs)
+    )
+
+    if not dir_has_context and not requirement.strip():
         parts.append("\n## ⚠️ 重要提示")
-        parts.append("目录下无文档文件，用户也未输入需求。请直接返回 insufficient_info。")
+        parts.append("无目录资料且无文字指令。请直接返回 insufficient_info。")
+    elif not analyzed_files and requirement.strip() and no_docs and not source_files:
+        parts.append("\n## ⚠️ 重要提示")
+        parts.append(
+            "当前为「纯文字需求」模式（目录无可用资料）。"
+            "请仅根据「用户文字指令」生成至少 1 个可执行模块的 plan，不要返回 insufficient_info。"
+        )
+    elif dir_has_context and requirement.strip():
+        parts.append("\n## ⚠️ 重要提示")
+        parts.append(
+            "请将「用户文字指令」与「目录资料/代码上下文」合并分析，生成统一执行计划。"
+        )
+    elif dir_has_context and not requirement.strip():
+        parts.append("\n## ⚠️ 重要提示")
+        parts.append(
+            "用户未单独填写文字，请基于目录资料摘要与源代码文件列表生成可执行 plan。"
+        )
 
     if project_memory_text:
         parts.append(project_memory_text)
 
     if requirement.strip():
-        parts.append(f"\n## 用户需求\n{requirement}")
+        parts.append(f"\n## 用户文字指令\n{requirement}")
+    elif dir_has_context:
+        parts.append("\n## 用户文字指令\n（未填写，对齐时以目录扫描结果为主）")
     else:
-        parts.append("\n## 用户需求\n（用户未输入具体需求，请仅基于文档摘要生成计划）")
+        parts.append("\n## 用户文字指令\n（未填写）")
 
     parts.append("\n请严格遵循核心约束，输出上述 JSON 格式的结果。")
 
@@ -206,6 +230,24 @@ class AlignmentAgent:
         response = await self._llm.ainvoke(prompt)
         raw_text: str = response.content if hasattr(response, "content") else str(response)
         result = extract_json(raw_text)
+
+        # 纯文本需求：LLM 误报 insufficient_info 时在后端纠正
+        if (
+            result.get("status") == "insufficient_info"
+            and requirement.strip()
+        ):
+            result = {
+                "summary": f"基于用户需求：{requirement.strip()[:120]}",
+                "assumptions": ["实现语言默认 Python", "MVP 单模块优先"],
+                "risks": ["需求描述较简略，实现范围以用户原文为准"],
+                "plan": [{
+                    "module": "core_mvp",
+                    "description": requirement.strip()[:800],
+                    "reason": "用户明确提出的功能需求",
+                    "type": "backend",
+                }],
+                "questions": [],
+            }
 
         # ── 自检 ──
         plan = result.get("plan", [])

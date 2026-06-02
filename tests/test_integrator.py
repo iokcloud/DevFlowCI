@@ -43,13 +43,21 @@ async def test_global_reviewer_accepts_dict_project_structure():
     integration = IntegrationResult(
         project_structure={"app.py": "entry", "utils.py": "helpers"},
         main_code="print('hi')",
-        integration_tests="",
+        integration_tests="def test_ok(): assert True",
         readme="# x",
         requirements="fastapi",
     )
-    result = await agent.review("test requirement", [], [], integration)
+    modules = [
+        {"module_name": "auth", "status": "passed", "code": "def login(): pass"},
+    ]
+    result = await agent.review("test requirement", [], modules, integration)
 
     assert result.passed is True
     prompt = mock_llm.ainvoke.call_args[0][0]
     assert "app.py" in prompt
     assert "utils.py" in prompt
+    assert "requirements.txt" in prompt
+    assert "README.md" in prompt
+    assert "test_integration.py" in prompt
+    assert "def login()" in prompt
+    assert "勿声称未提供" in prompt

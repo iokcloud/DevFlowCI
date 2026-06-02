@@ -75,6 +75,22 @@ async def init_db() -> None:
         except Exception:
             pass
 
+        try:
+            await conn.execute(
+                text("ALTER TABLE projects ADD COLUMN display_name VARCHAR(128)")
+            )
+        except Exception:
+            pass
+
+        for col_sql in (
+            "ALTER TABLE projects ADD COLUMN iteration INTEGER DEFAULT 1",
+            "ALTER TABLE projects ADD COLUMN requirement_addendum_json TEXT",
+        ):
+            try:
+                await conn.execute(text(col_sql))
+            except Exception:
+                pass
+
     # ── FixSession 表迁移 (v0.6.0 新增：闭环修复记录) ──
     try:
         from database.models import Base as _Base

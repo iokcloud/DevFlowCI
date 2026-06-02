@@ -9,6 +9,7 @@ from sqlalchemy import select
 
 from database.db import async_session_factory
 from database.models import ModuleTask, Project, ProjectLog
+from workflow.requirement_context import parse_requirement_addenda
 
 
 async def fetch_project_snapshot(project_id: str) -> dict[str, Any] | None:
@@ -49,6 +50,7 @@ async def fetch_project_snapshot(project_id: str) -> dict[str, Any] | None:
 
         return {
             "project_id": project.project_id,
+            "display_name": project.display_name or "",
             "requirement": project.requirement,
             "directory": project.directory,
             "status": project.status.value,
@@ -57,6 +59,10 @@ async def fetch_project_snapshot(project_id: str) -> dict[str, Any] | None:
             if project.alignment_json
             else None,
             "blocked_count": project.blocked_count,
+            "iteration": project.iteration or 1,
+            "requirement_addenda": parse_requirement_addenda(
+                project.requirement_addendum_json
+            ),
             "recent_error_logs": recent_error_logs,
             "modules": [
                 {

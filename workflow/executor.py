@@ -65,6 +65,7 @@ from config import (
     AUTOPILOT_ENABLED,
     BUSINESS_MVP_MAX_MODULES,
 )
+from workflow.requirement_context import merge_sources_label
 from memory.case_store import CaseStore
 from memory.project_memory import ProjectMemoryStore
 from workflow.auto_fix import classify_error, search_similar_cases, FixContext
@@ -537,6 +538,7 @@ async def _sync_project_status(project_id: str, status: str) -> None:
             "completed": ProjectStatus.COMPLETED,
             "failed": ProjectStatus.FAILED,
             "needs_review": ProjectStatus.NEEDS_REVIEW,
+            "finalized": ProjectStatus.FINALIZED,
         }
         db_status = _status_map.get(status)
         if db_status is None:
@@ -1058,7 +1060,24 @@ def _fallback_alignment(
             ],
         }
 
-    # ── 场景2：无文档，纯文本需求 → 关键词提取兜底 ──
+    # ── 场景2：无文档，纯文本需求 → 以完整需求为单模块 MVP ──
+    req = (requirement or "").strip()
+    if req:
+        slug = re.sub(r"[^\w\u4e00-\u9fff]+", "_", req[:24]).strip("_").lower() or "core_mvp"
+        modules = [{
+            "module": slug[:30],
+            "description": req[:800],
+            "reason": "用户明确提出的功能需求（纯文本模式）",
+            "type": "backend",
+        }]
+        return {
+            "summary": f"基于用户需求生成 MVP 计划：{req[:100]}",
+            "assumptions": ["默认 Python 实现", "优先最小可运行交付"],
+            "risks": ["若需求范围过大，将在模块构建阶段按 MVP 上限裁剪"],
+            "plan": modules,
+            "questions": [],
+        }
+
     words = re.findall(r"[\u4e00-\u9fff]+|[a-zA-Z]+", requirement)
     keywords = [w for w in words if len(w) >= 2][:5]
 
@@ -1231,6 +1250,28 @@ def _exec_tests_passed(exec_test_result: dict[str, Any] | None) -> bool:
     return passed > 0 and failed == 0 and errors == 0
 
 
+def _exec_tests_skipped(exec_test_result: dict[str, Any] | None) -> bool:
+    """未执行真实 pytest（无测试代码或全局关闭）。"""
+    if not exec_test_result:
+        return True
+    mode = exec_test_result.get("execution_mode", "")
+    if mode == "skipped":
+        return True
+    if mode == "error":
+        return False
+    return int(exec_test_result.get("total") or 0) == 0
+
+
+def _module_clear_to_pass(
+    review_passed: bool,
+    exec_test_result: dict[str, Any] | None,
+) -> bool:
+    """审查通过且（测试全过或未跑真实测试）才可标记 passed。"""
+    if not review_passed:
+        return False
+    return _exec_tests_passed(exec_test_result) or _exec_tests_skipped(exec_test_result)
+
+
 def _apply_mvp_module_cap(
     modules: list[dict[str, Any]],
     state: WorkflowState,
@@ -1318,6 +1359,7 @@ class WorkflowExecutor:
         state.setdefault("blocked_modules", [])
 
         directory = state.get("directory", "")
+        user_req = (state.get("requirement") or "").strip()
         project_memory_text = ""
         if directory:
             try:
@@ -1334,7 +1376,7 @@ class WorkflowExecutor:
                 state["project_context"] = json.dumps(structured_context, ensure_ascii=False)
                 file_count = len(structured_context.get("analyzed_files", []))
                 if structured_context.get("no_documentation_found"):
-                    await push_log(pid, "INFO", "目录下未发现文档文件，对齐分析将仅基于需求")
+                    await push_log(pid, "INFO", "目录下未发现文档文件，将与文字指令或代码文件列表合并分析")
                 else:
                     await push_log(pid, "SUCCESS", f"文档分析完成：{file_count} 个文件")
                 scan_meta = build_context_scan_meta(
@@ -1364,16 +1406,24 @@ class WorkflowExecutor:
 
         # ★ 增强：检查是否使用了自动生成需求 + 有文档 → 强制重新评估 doc_type
         has_docs = len(structured_context.get("analyzed_files", [])) > 0
-        is_auto_requirement = (
-            "请分析现有项目代码" in state.get("requirement", "")
-            and "找出可优化" in state.get("requirement", "")
+        directory_only = bool(directory) and not user_req
+
+        await push_log(
+            pid,
+            "INFO",
+            f"📋 合并分析来源：{merge_sources_label(user_req, directory)}"
+            + (f" | 文档数: {len(structured_context.get('analyzed_files', []))}"
+               if has_docs else " | 无文档")
+            + (f" | 代码文件: {len(structured_context.get('source_files', []))}"
+               if structured_context.get("source_files") else "")
+            + (" | 仅目录资料" if directory_only else ""),
         )
 
         await push_log(pid, "INFO", f"📋 文档类型判定: {doc_type}"
             + (f" (用户指定: {force_mode})" if force_mode else " (自动识别)")
             + (f" | 文档数: {len(structured_context.get('analyzed_files', []))}"
                if has_docs else " | 无文档")
-            + (" | 自动生成需求" if is_auto_requirement else ""))
+            + (" | 仅目录资料" if directory_only else ""))
 
         # ★ 核心修复：generic / technical 但有文档且无源代码文件 → 大概率是商业文档
         # 三次确认机制，确保不会漏判
@@ -1411,7 +1461,9 @@ class WorkflowExecutor:
                     state["status"] = "aligning"
                     await _notify_ai_stream(pid, "business_planner", "start")
                     biz_plan = await self._business_planner.plan(
-                        structured_context, project_memory_text
+                        structured_context,
+                        project_memory_text,
+                        user_requirement=user_req,
                     )
                     alignment_result = BusinessPlannerAgent.format_for_display(biz_plan)
                     # 推送商业计划摘要到 AI 流
@@ -1440,13 +1492,26 @@ class WorkflowExecutor:
                     plan_b = {}
                     await push_log(pid, "WARN", "对齐分析未通过验证，使用兜底方案")
 
-                # ★★ 核心修复：insufficient_info 死胡同消除 ★★
-                if plan_a.get("status") == "insufficient_info" and structured_context:
-                    if has_docs or not structured_context.get("no_documentation_found", True):
+                # ★ insufficient_info：有文本需求则基于需求兜底，不再死胡同
+                if plan_a.get("status") == "insufficient_info":
+                    if state.get("requirement", "").strip():
+                        await push_log(
+                            pid, "INFO",
+                            "对齐返回信息不足，但用户已提供需求 — 基于需求生成执行计划",
+                        )
+                        plan_a = _fallback_alignment(
+                            state["requirement"], structured_context
+                        )
+                        plan_a.pop("status", None)
+                    elif structured_context and (
+                        has_docs or not structured_context.get("no_documentation_found", True)
+                    ):
                         await push_log(pid, "INFO", "🔄 AlignmentAgent 返回信息不足，尝试商业计划模式兜底...")
                         try:
                             biz_plan = await self._business_planner.plan(
-                                structured_context, project_memory_text
+                                structured_context,
+                                project_memory_text,
+                                user_requirement=user_req,
                             )
                             alignment_result = BusinessPlannerAgent.format_for_display(biz_plan)
                             await push_log(pid, "SUCCESS", "商业计划兜底成功", state_event="aligned")
@@ -1458,7 +1523,6 @@ class WorkflowExecutor:
                         except Exception as biz_exc:
                             await push_log(pid, "WARN",
                                 f"商业计划兜底也失败: {biz_exc}，使用智能回退方案")
-                            # ★ 不再透传 insufficient_info！
                             plan_a = _fallback_alignment(
                                 state["requirement"], structured_context
                             )
@@ -1681,6 +1745,15 @@ class WorkflowExecutor:
                 await _persist_plan_modules(
                     pid, state["plan_json"], modules
                 )
+                try:
+                    from workflow.document_sync import (
+                        build_ctx_from_workflow_state,
+                        sync_after_plan_ready,
+                    )
+
+                    sync_after_plan_ready(build_ctx_from_workflow_state(state))
+                except Exception:
+                    pass
                 return state
 
             except Exception as exc:
@@ -1738,8 +1811,81 @@ class WorkflowExecutor:
                 f"✅ 模块构建完成: {passed_count} 通过, {blocked_count} 阻塞, {failed_count} 失败"
             )
 
-            # ── 阶段2：集成 ──
-            await push_log(pid, "STATE", "integrating", state_event="integrating")
+            return await self._execute_post_modules_pipeline(pid, state)
+
+        except Exception as exc:
+            await push_log(pid, "ERROR", f"工作流异常: {exc}")
+            state["status"] = "failed"
+            state["errors"].append(str(exc))
+            return state
+
+    async def execute_improvement(
+        self,
+        state: WorkflowState,
+        target_modules: list[str],
+        *,
+        reintegrate_only: bool = False,
+    ) -> WorkflowState:
+        """迭代改进：补跑指定模块（或仅重新集成）→ 审查 → 打包新版本。"""
+        pid = state["project_id"]
+        iteration = state.get("iteration", 1)
+
+        try:
+            if reintegrate_only:
+                await push_log(
+                    pid, "INFO",
+                    f"🔄 第 {iteration} 轮迭代：根据补充需求重新集成与审查",
+                )
+            elif target_modules:
+                state["status"] = "executing"
+                await _sync_project_status(pid, "executing")
+                await push_log(pid, "STATE", "executing", state_event="executing")
+                await push_log(
+                    pid, "INFO",
+                    f"🔄 第 {iteration} 轮迭代：补跑 {len(target_modules)} 个模块 — "
+                    + ", ".join(target_modules),
+                )
+
+                name_to_module = {
+                    m["module_name"]: m for m in state["plan_modules"]
+                }
+                for name in target_modules:
+                    module = name_to_module.get(name)
+                    if not module:
+                        await push_log(pid, "WARN", f"跳过未知模块: {name}")
+                        continue
+                    await _update_module_status(pid, name, "pending")
+                    await self._execute_single_module(pid, state, module)
+
+                results = state.get("module_results", {})
+                state["blocked_modules"] = [
+                    n for n, r in results.items()
+                    if r.get("status") == "blocked"
+                ]
+                passed = sum(
+                    1 for r in results.values() if r.get("status") == "passed"
+                )
+                await push_log(
+                    pid, "SUCCESS",
+                    f"迭代模块阶段完成：{passed} 通过，"
+                    f"{len(state['blocked_modules'])} 阻塞",
+                )
+            else:
+                await push_log(pid, "WARN", "未指定目标模块，直接进入集成阶段")
+
+            return await self._execute_post_modules_pipeline(pid, state)
+
+        except Exception as exc:
+            await push_log(pid, "ERROR", f"迭代改进异常: {exc}")
+            state["status"] = "failed"
+            state.setdefault("errors", []).append(str(exc))
+            return state
+
+    async def _execute_post_modules_pipeline(
+        self, pid: str, state: WorkflowState
+    ) -> WorkflowState:
+        """模块执行后的共用管线：集成 → 测试 → 审查 → 打包。"""
+        try:
             await _sync_project_status(pid, "integrating")
             await push_log(pid, "INFO", "🔗 进入集成阶段，组装项目...")
             state = await self._execute_integrate_with_retry(pid, state)
@@ -1851,22 +1997,6 @@ class WorkflowExecutor:
                        + (f", {blocked_count} 阻塞" if blocked_count > 0 else ", 全部通过"))
             await push_log(pid, "SUCCESS", summary)
 
-            # ── 项目记忆更新 ──
-            try:
-                if state.get("directory"):
-                    self._project_memory.update_after_delivery(
-                        directory=state["directory"],
-                        requirement=state["requirement"],
-                        plan=state["plan_modules"],
-                        module_results=state["module_results"],
-                        last_modified_module=(
-                            state["plan_modules"][-1]["module_name"]
-                            if state["plan_modules"] else ""
-                        ),
-                    )
-            except Exception:
-                pass
-
             # ── 通用记忆进化 ──
             if self._case_store:
                 try:
@@ -1884,9 +2014,9 @@ class WorkflowExecutor:
             return state
 
         except Exception as exc:
-            await push_log(pid, "ERROR", f"工作流异常: {exc}")
+            await push_log(pid, "ERROR", f"交付管线异常: {exc}")
             state["status"] = "failed"
-            state["errors"].append(str(exc))
+            state.setdefault("errors", []).append(str(exc))
             return state
 
     async def execute(self, state: WorkflowState) -> WorkflowState:
@@ -1920,7 +2050,16 @@ class WorkflowExecutor:
                 await push_log(pid, "INFO", f"集成 Agent 开始组装项目...（第 {attempt} 次）")
                 await _notify_ai_stream(pid, "integrator", "start")
                 modules_info = self._collect_module_info(state)
-                integration = await self._integrator.integrate(state["requirement"], modules_info)
+                req = state["requirement"]
+                try:
+                    from workflow.document_sync import load_docs_context_for_agents
+
+                    doc_ctx = load_docs_context_for_agents(pid)
+                    if doc_ctx:
+                        req = req + "\n\n" + doc_ctx
+                except Exception:
+                    pass
+                integration = await self._integrator.integrate(req, modules_info)
                 state["integration_result"] = {
                     "project_structure": integration.project_structure,
                     "main_code": integration.main_code,
@@ -2240,32 +2379,48 @@ class WorkflowExecutor:
                         exec_test_result = await self._run_module_test_and_log(
                             pid, module_name, code.test_code, module_code=code.code,
                         )
+
+                    if _module_clear_to_pass(True, exec_test_result):
+                        await push_log(
+                            pid, "SUCCESS",
+                            f"[{module_name}] 审查通过 ✓",
+                            module_name=module_name,
+                        )
+                        state["module_results"][module_name] = {
+                            "module_name": module_name,
+                            "status": "passed",
+                            "spec": {
+                                "summary": spec.summary,
+                                "api_endpoints": spec.api_endpoints,
+                                "data_models": spec.data_models,
+                            },
+                            "code": code.code,
+                            "test_code": code.test_code,
+                            "test_result": exec_test_result,
+                            "retry_count": retry,
+                            "auto_fix_history": json.dumps(fix_history, ensure_ascii=False) if fix_history else "[]",
+                        }
+                        await _persist_module_result(pid, module_name, state["module_results"][module_name])
+                        try:
+                            from workflow.closed_loop import cleanup_after_fix
+                            await cleanup_after_fix(pid, module_name)
+                        except Exception:
+                            pass
+                        return
+
+                    failure_reason = (
+                        (exec_test_result or {}).get("summary")
+                        or "单元测试未通过"
+                    )
                     await push_log(
-                        pid, "SUCCESS",
-                        f"[{module_name}] 审查通过 ✓",
+                        pid, "WARN",
+                        f"[{module_name}] 审查通过但单元测试未通过，继续修复…\n{failure_reason}",
                         module_name=module_name,
                     )
-                    state["module_results"][module_name] = {
-                        "module_name": module_name,
-                        "status": "passed",
-                        "spec": {
-                            "summary": spec.summary,
-                            "api_endpoints": spec.api_endpoints,
-                            "data_models": spec.data_models,
-                        },
-                        "code": code.code,
-                        "test_code": code.test_code,
-                        "test_result": exec_test_result,
-                        "retry_count": retry,
-                        "auto_fix_history": json.dumps(fix_history, ensure_ascii=False) if fix_history else "[]",
-                    }
-                    await _persist_module_result(pid, module_name, state["module_results"][module_name])
-                    try:
-                        from workflow.closed_loop import cleanup_after_fix
-                        await cleanup_after_fix(pid, module_name)
-                    except Exception:
-                        pass
-                    return
+                    feedback = f"审查已通过，但 pytest 未通过，请修复：\n{failure_reason}"
+                    if retry < MAX_REVIEW_RETRIES - 1:
+                        continue
+                    break
 
                 if use_mvp_test_gate and _exec_tests_passed(exec_test_result):
                     label = "MVP" if mvp_mode else "商业多模块"
@@ -2366,7 +2521,13 @@ class WorkflowExecutor:
                         raise ValueError(fb_out or "编码产出未就绪")
                     return coded
 
-                async def _do_review(mn: str, summary: str, c: str, tc: str, retry: int):
+                async def _do_review(
+                    mn: str,
+                    summary: str,
+                    c: str,
+                    tc: str,
+                    retry_count: int = 0,
+                ):
                     readiness = assess_module_code(c, tc)
                     if not readiness.ready:
                         from agents.reviewer import ReviewResult
@@ -2376,7 +2537,7 @@ class WorkflowExecutor:
                             issues=readiness.issues or ["代码尚未完整，请继续编码"],
                         )
                     return await self._reviewer.review(
-                        mn, summary, c, tc, retry_count=retry, mvp_mode=compact_mvp,
+                        mn, summary, c, tc, retry_count=retry_count, mvp_mode=compact_mvp,
                     )
 
                 async def _do_repair(moutput: dict, hcases: list):
@@ -2441,22 +2602,33 @@ class WorkflowExecutor:
                     exec_test_result = await self._run_module_test_and_log(
                         pid, module_name, loop_result.test_code, module_code=loop_result.code,
                     )
-                    state["module_results"][module_name] = {
-                        "module_name": module_name,
-                        "status": "passed",
-                        "spec": {
-                            "summary": spec.summary,
-                            "api_endpoints": spec.api_endpoints,
-                            "data_models": spec.data_models,
-                        },
-                        "code": loop_result.code,
-                        "test_code": loop_result.test_code,
-                        "test_result": exec_test_result,
-                        "retry_count": total_rounds,
-                        "auto_fix_history": json.dumps(loop_result.fix_history, ensure_ascii=False),
-                    }
-                    await _persist_module_result(pid, module_name, state["module_results"][module_name])
-                    return
+                    if _module_clear_to_pass(True, exec_test_result):
+                        state["module_results"][module_name] = {
+                            "module_name": module_name,
+                            "status": "passed",
+                            "spec": {
+                                "summary": spec.summary,
+                                "api_endpoints": spec.api_endpoints,
+                                "data_models": spec.data_models,
+                            },
+                            "code": loop_result.code,
+                            "test_code": loop_result.test_code,
+                            "test_result": exec_test_result,
+                            "retry_count": total_rounds,
+                            "auto_fix_history": json.dumps(loop_result.fix_history, ensure_ascii=False),
+                        }
+                        await _persist_module_result(pid, module_name, state["module_results"][module_name])
+                        return
+
+                    failure_reason = (
+                        (exec_test_result or {}).get("summary")
+                        or "闭环修复后单元测试仍未通过"
+                    )
+                    await push_log(
+                        pid, "WARN",
+                        f"[{module_name}] 闭环修复完成但测试未通过: {failure_reason}",
+                        module_name=module_name,
+                    )
 
                 # 闭环修复未成功，更新代码引用
                 failure_reason = loop_result.failure_reason or failure_reason
@@ -2645,21 +2817,46 @@ class WorkflowExecutor:
                     ext = ".html"
                 (project_dir / f"{name}{ext}").write_text(code, encoding="utf-8")
 
-        # 写入集成产物
-        (project_dir / "main.py").write_text(
-            integration.main_code, encoding="utf-8"
-        )
-        (project_dir / "README.md").write_text(
-            integration.readme, encoding="utf-8"
-        )
-        (project_dir / "requirements.txt").write_text(
-            integration.requirements, encoding="utf-8"
-        )
+        # 写入集成产物（空字段时使用最小兜底，避免 ZIP 缺文件）
+        main_code = (integration.main_code or "").strip()
+        if not main_code:
+            main_code = (
+                '"""DevFlow 集成占位入口 — 请根据模块补全路由。"""\n'
+                "from fastapi import FastAPI\n\napp = FastAPI()\n"
+            )
+            await push_log(pid, "WARN", "集成未生成 main.py，已写入最小占位入口")
+
+        readme = (integration.readme or "").strip()
+        if not readme:
+            readme = (
+                f"# {pid}\n\n"
+                "## 安装\n\n```bash\npip install -r requirements.txt\n```\n\n"
+                "## 说明\n\n由 DevFlow CI 自动生成。如有 blocked 模块，请参阅 TODO.md。\n"
+            )
+            await push_log(pid, "WARN", "集成未生成 README，已写入最小说明")
+
+        requirements = (integration.requirements or "").strip()
+        if not requirements:
+            requirements = "fastapi>=0.115.0\nuvicorn[standard]>=0.34.0\npytest>=8.0.0\n"
+            await push_log(pid, "WARN", "集成未生成 requirements.txt，已写入默认依赖")
+
+        integration_tests = (integration.integration_tests or "").strip()
+        if not integration_tests:
+            integration_tests = (
+                "def test_delivery_placeholder():\n"
+                '    """集成测试占位 — 集成 Agent 未产出时可手动补充。"""\n'
+                "    assert True\n"
+            )
+            await push_log(pid, "WARN", "集成未生成 integration_tests，已写入占位测试")
+
+        (project_dir / "main.py").write_text(main_code, encoding="utf-8")
+        (project_dir / "README.md").write_text(readme, encoding="utf-8")
+        (project_dir / "requirements.txt").write_text(requirements, encoding="utf-8")
 
         # 写入集成测试（如果有 blocked 模块，额外生成 test_blocked_modules.py）
-        if integration.integration_tests:
+        if integration_tests:
             (project_dir / "test_integration.py").write_text(
-                integration.integration_tests, encoding="utf-8"
+                integration_tests, encoding="utf-8"
             )
 
         # ── 生成 TODO.md（未完成模块清单） ──
@@ -2724,7 +2921,7 @@ class WorkflowExecutor:
                 "\n".join(test_blocked_lines), encoding="utf-8"
             )
 
-        # 写入审查报告
+        # 写入审查报告（QUALITY_REPORT 由 document_sync 生成）
         report = state.get("global_review", {})
         blocked_info = ""
         if blocked_modules:
@@ -2741,6 +2938,22 @@ class WorkflowExecutor:
         (project_dir / "REVIEW_REPORT.md").write_text(
             report_text, encoding="utf-8"
         )
+
+        # ── 文档同步：CHANGELOG / QUALITY / 复制 docs / 项目记忆 ──
+        try:
+            from workflow.document_sync import (
+                build_ctx_from_workflow_state,
+                sync_on_package,
+            )
+
+            sync_on_package(
+                build_ctx_from_workflow_state(state),
+                project_dir,
+                version_num=version_num,
+                project_memory_store=self._project_memory,
+            )
+        except Exception as exc:
+            await push_log(pid, "WARN", f"文档同步失败（不影响打包）: {exc}")
 
         # 打包 ZIP
         zip_path = project_dir.with_suffix(".zip")

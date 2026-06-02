@@ -1,50 +1,80 @@
 @echo off
-chcp 65001 >nul
-cd /d "%~dp0"
+setlocal EnableExtensions EnableDelayedExpansion
+chcp 65001 >nul 2>&1
+title DevFlow CI
+
+set "ROOT=%~dp0"
+cd /d "%ROOT%"
 
 echo.
-echo ╔══════════════════════════════════════╗
-echo ║     🤖 DevFlow CI 启动中...          ║
-echo ╚══════════════════════════════════════╝
+echo ========================================
+echo   DevFlow CI
+echo ========================================
 echo.
 
-REM 检查 .env 文件
-if not exist ".env" (
-    echo ⚠️  未找到 .env 文件，正在从 .env.example 复制...
-    copy .env.example .env >nul
-    echo ⚠️  请编辑 .env 文件填入 DEEPSEEK_API_KEY 后重新启动
-    start notepad .env
-    pause
-    exit /b 1
+set "PY=%ROOT%venv\Scripts\python.exe"
+set "PORT=8000"
+
+if not exist "%ROOT%.env" (
+    if exist "%ROOT%.env.example" (
+        echo [info] Creating .env from .env.example
+        copy /y "%ROOT%.env.example" "%ROOT%.env" >nul
+        start notepad "%ROOT%.env"
+        echo [info] Please set DEEPSEEK_API_KEY in .env
+        echo.
+    ) else (
+        echo [warn] No .env file found
+        echo.
+    )
 )
 
-REM 检查虚拟环境
-if not exist "venv\Scripts\activate.bat" (
-    echo 🚫 错误：未找到虚拟环境，请先运行: python -m venv venv
-    pause
-    exit /b 1
+if not exist "%PY%" (
+    echo [step] Creating virtual environment...
+    where python >nul 2>&1
+    if errorlevel 1 (
+        echo [error] Python not found. Install Python 3.10+ and add to PATH.
+        goto fail
+    )
+    python -m venv "%ROOT%venv"
+    if errorlevel 1 (
+        echo [error] Failed to create venv
+        goto fail
+    )
 )
 
-REM 激活虚拟环境
-call venv\Scripts\activate.bat
-
-REM 检查依赖
-python -c "import fastapi" 2>nul
+"%PY%" -c "import fastapi, uvicorn" >nul 2>&1
 if errorlevel 1 (
-    echo 📦 正在安装依赖...
-    pip install -r requirements.txt -q
+    echo [step] Installing dependencies...
+    "%PY%" -m pip install -r "%ROOT%requirements.txt"
+    if errorlevel 1 (
+        echo [error] pip install failed
+        goto fail
+    )
 )
 
+echo [step] Checking port %PORT% ...
+powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%scripts\stop_server.ps1" -Port %PORT% | findstr /v "^$"
+
 echo.
-echo 🚀 启动服务: http://localhost:8000
-echo 📋 API 文档: http://localhost:8000/docs
-echo ⏹  按 Ctrl+C 停止服务
+echo [url]  http://127.0.0.1:%PORT%
+echo [docs] http://127.0.0.1:%PORT%/docs
+echo [stop] Press Ctrl+C in this window
 echo.
 
-REM 等待一秒后自动打开浏览器
-start "" http://localhost:8000
+start /b cmd /c "ping 127.0.0.1 -n 3 >nul && start http://127.0.0.1:%PORT%/"
 
-REM 启动服务器
-python -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload
+"%PY%" -m uvicorn main:app --host 127.0.0.1 --port %PORT% --reload
+set "EXIT_CODE=!ERRORLEVEL!"
 
+if not "!EXIT_CODE!"=="0" (
+    echo.
+    echo [error] Server exited with code !EXIT_CODE!
+    echo         Run scripts\stop_server.bat if port %PORT% is still busy.
+)
 pause
+exit /b !EXIT_CODE!
+
+:fail
+echo.
+pause
+exit /b 1

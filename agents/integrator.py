@@ -100,6 +100,32 @@ GLOBAL_REVIEWER_SYSTEM_PROMPT = """你是一位资深技术总监，负责对整
 """
 
 
+def _clip_text(text: str, max_len: int, *, empty_label: str = "（无）") -> str:
+    """截断长文本并标注，避免审查误判「未提供」。"""
+    normalized = (text or "").strip()
+    if not normalized:
+        return empty_label
+    if len(normalized) <= max_len:
+        return normalized
+    return normalized[:max_len] + "\n... [内容已截断，完整版在交付 ZIP 中]"
+
+
+def _format_passed_module_codes(modules: list[dict[str, Any]], *, per_module: int = 900) -> str:
+    """汇总已通过模块的代码摘要，供全局审查核对。"""
+    parts: list[str] = []
+    for m in modules:
+        if m.get("status") == "blocked":
+            continue
+        code = (m.get("code") or "").strip()
+        if not code:
+            continue
+        parts.append(
+            f"### {m['module_name']} [{m.get('status', '?')}]\n"
+            f"```python\n{_clip_text(code, per_module, empty_label='')}\n```"
+        )
+    return "\n\n".join(parts) if parts else "（无已通过模块代码）"
+
+
 # ── Agent 类 ──────────────────────────────────────────────
 
 class IntegratorAgent:
@@ -136,7 +162,7 @@ class IntegratorAgent:
             modules_text_parts.append(
                 f"## 模块：{m['module_name']} ✓\n"
                 f"**功能**：{m.get('description', m.get('spec', ''))}\n"
-                f"```python\n{m.get('code', '')[:2000]}\n```\n"
+                f"```python\n{m.get('code', '')[:3500]}\n```\n"
             )
         modules_text = "\n".join(modules_text_parts)
 
@@ -211,6 +237,13 @@ class GlobalReviewerAgent:
             for m in modules
         )
 
+        passed_codes = _format_passed_module_codes(modules)
+        readme_text = _clip_text(integration.readme, 2500)
+        requirements_text = _clip_text(integration.requirements, 1200)
+        integration_tests_text = _clip_text(integration.integration_tests, 2000)
+        main_code_text = _clip_text(integration.main_code, 3500)
+        structure_text = _clip_text(str(integration.project_structure), 1500)
+
         prompt = f"""{GLOBAL_REVIEWER_SYSTEM_PROMPT}
 
 用户需求：{project_requirement}
@@ -219,13 +252,37 @@ class GlobalReviewerAgent:
 {modules_summary}
 {blocked_section}
 
-集成结构：
-{str(integration.project_structure)[:1000]}
+## 集成交付物（审查时请基于以下内容，勿声称未提供）
+下列 README / requirements / 集成测试 / 主入口 / 模块代码 为集成阶段实际产出摘要。
 
-主入口代码（部分）：
-```python
-{integration.main_code[:2000]}
+### 项目结构
+{structure_text}
+
+### requirements.txt
 ```
+{requirements_text}
+```
+
+### README.md
+{readme_text}
+
+### integration_tests（test_integration.py）
+```python
+{integration_tests_text}
+```
+
+### 主入口 main.py
+```python
+{main_code_text}
+```
+
+### 已通过模块代码摘要
+{passed_codes}
+
+审查说明：
+- 若上述字段不是「（无）」，请勿在 issues 中写「未提供 README/requirements/integration_tests」。
+- main.py 若显示截断标记，仅审查可见部分；勿因截断 alone 判定整文件缺失。
+- blocked 模块相关问题请写入 blocked_module_issues，不要与普通 issues 重复。
 
 请输出 JSON 格式的全局审查结果。"""
 

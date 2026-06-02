@@ -15,6 +15,7 @@ def test_learnings_cluster_runs():
         capture_output=True,
         text=True,
         encoding="utf-8",
+        errors="replace",
         cwd=PROJECT_ROOT,
         check=False,
     )

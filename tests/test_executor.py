@@ -109,11 +109,24 @@ class TestHelpers:
         assert all(m["dependencies"] == [] for m in out)
 
     def test_exec_tests_passed(self):
-        from workflow.executor import _exec_tests_passed
+        from workflow.executor import (
+            _exec_tests_passed,
+            _exec_tests_skipped,
+            _module_clear_to_pass,
+        )
 
         assert _exec_tests_passed({"passed": 2, "failed": 0, "errors": 0})
         assert not _exec_tests_passed({"passed": 0, "failed": 1, "errors": 0})
         assert not _exec_tests_passed(None)
+
+        assert _exec_tests_skipped({"execution_mode": "skipped", "total": 0})
+        assert _exec_tests_skipped(None)
+        assert not _exec_tests_skipped({"execution_mode": "error", "total": 0, "failed": 1})
+
+        assert _module_clear_to_pass(True, {"passed": 2, "failed": 0, "errors": 0})
+        assert _module_clear_to_pass(True, {"execution_mode": "skipped", "total": 0})
+        assert not _module_clear_to_pass(True, {"passed": 0, "failed": 10, "total": 10})
+        assert not _module_clear_to_pass(False, {"passed": 2, "failed": 0, "errors": 0})
 
     def test_apply_mvp_module_cap_explicit(self):
         modules = [{"module_name": f"m{i}"} for i in range(5)]

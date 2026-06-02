@@ -158,6 +158,28 @@ class CreateProjectRequest(BaseModel):
     force_new: bool = Field(default=False, description="强制创建新项目，跳过去重（重试场景使用）")
 
 
+class UpdateDisplayNameRequest(BaseModel):
+    """更新历史项目显示名称。"""
+    display_name: str = Field(..., min_length=1, max_length=128, description="自定义标题")
+
+
+class IterateProjectRequest(BaseModel):
+    """开始下一轮迭代改进。"""
+    addendum: str = Field(
+        default="",
+        description="本轮需求补充说明（可选）",
+    )
+    module_names: list[str] = Field(
+        default_factory=list,
+        description="指定补跑模块；为空则默认全部 blocked 模块",
+    )
+
+
+class RequirementAddendumRequest(BaseModel):
+    """仅追加需求补充（不启动迭代）。"""
+    text: str = Field(..., min_length=1, description="补充说明")
+
+
 class ConfirmPlanRequest(BaseModel):
     """确认规划请求体。"""
     modules: list[dict[str, Any]] | None = Field(
@@ -198,9 +220,15 @@ class CleanupProjectsRequest(BaseModel):
     )
     stale_minutes: int = Field(default=10, ge=1, le=1440)
     delete_deliveries: bool = Field(
-        default=False,
-        description="是否同时删除 deliveries 目录下的交付物",
+        default=True,
+        description="是否同时删除 deliveries 目录下的交付物（默认开启）",
     )
+
+
+class DeliveryCleanupRequest(BaseModel):
+    """按建议路径删除 deliveries 下的冗余交付物。"""
+    paths: list[str] = Field(default_factory=list, description="要删除的相对路径列表")
+    dry_run: bool = Field(default=False, description="仅预览，不实际删除")
 
 
 _TERMINAL_PROJECT_STATUSES = {
@@ -208,6 +236,7 @@ _TERMINAL_PROJECT_STATUSES = {
     ProjectStatus.FAILED,
     ProjectStatus.NEEDS_REVIEW,
     ProjectStatus.CANCELLED,
+    ProjectStatus.FINALIZED,
 }
 
 _ACTIVE_PROJECT_STATUSES = {
@@ -225,30 +254,22 @@ _ACTIVE_PROJECT_STATUSES = {
 async def _delete_project_record(
     project_id: str,
     *,
-    delete_deliveries: bool = False,
+    delete_deliveries: bool = True,
 ) -> bool:
-    """删除单个项目记录及可选交付物。返回是否删除成功。"""
+    """删除单个项目记录及关联交付物/日志。返回是否删除成功。"""
+    from sqlalchemy import delete, select
+
+    from database.db import async_session_factory
+    from database.models import ErrorLog, Project
+    from workflow.project_cleanup import cleanup_delivery_artifacts, prune_human_fixes
+
     task = _running_tasks.pop(project_id, None)
     if task and not task.done():
         task.cancel()
 
     if delete_deliveries:
-        zip_path = DELIVERIES_DIR / f"{project_id}.zip"
-        if zip_path.exists():
-            try:
-                zip_path.unlink()
-            except OSError:
-                pass
-        proj_dir = DELIVERIES_DIR / project_id
-        if proj_dir.is_dir():
-            import shutil
-            try:
-                shutil.rmtree(proj_dir, ignore_errors=True)
-            except OSError:
-                pass
-
-    from database.db import async_session_factory
-    from sqlalchemy import select
+        cleanup_delivery_artifacts(project_id)
+        prune_human_fixes(project_id)
 
     async with async_session_factory() as db:
         result = await db.execute(
@@ -257,11 +278,26 @@ async def _delete_project_record(
         project = result.scalar_one_or_none()
         if not project:
             return False
+        await db.execute(
+            delete(ErrorLog).where(ErrorLog.project_id == project_id)
+        )
         await db.delete(project)
         await db.commit()
 
     remove_log_queue(project_id)
     return True
+
+
+async def _all_project_ids() -> set[str]:
+    """数据库中所有 project_id。"""
+    from sqlalchemy import select
+
+    from database.db import async_session_factory
+    from database.models import Project
+
+    async with async_session_factory() as db:
+        result = await db.execute(select(Project.project_id))
+        return {row[0] for row in result.all()}
 
 
 # ── API 路由 ──────────────────────────────────────────────
@@ -275,6 +311,15 @@ async def index() -> HTMLResponse:
     return HTMLResponse("<h1>DevFlow CI</h1><p>前端文件未找到。</p>")
 
 
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon() -> FileResponse:
+    """浏览器默认请求的站点图标。"""
+    path = STATIC_DIR / "favicon.ico"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="favicon not found")
+    return FileResponse(path, media_type="image/x-icon")
+
+
 @app.post("/api/projects")
 async def create_project(
     body: CreateProjectRequest,
@@ -285,29 +330,27 @@ async def create_project(
     Body: {requirement: "...", directory: "D:/path/to/project" | null}
 
     交互规则：
-    - 目录为空 + 需求为空 → 前端阻止（后端返回 400）
-    - 目录为空 + 需求非空 → 从零开始工作流
-    - 目录非空 + 需求为空 → 自动生成分析需求
-    - 目录非空 + 需求非空 → 增量开发
+    - 文字与目录至少一项（二者为同一需求的不同来源，对齐阶段合并分析）
+    - 仅文字 → 纯文字需求
+    - 仅目录 → 扫描目录资料/代码后对齐（不再注入固定「分析代码」占位文案）
+    - 两者都有 → 文字指令 + 目录扫描结果合并分析
     """
     from database.db import async_session_factory
 
     requirement = body.requirement.strip()
     directory = body.directory.strip() if body.directory else ""
 
-    # 验证：目录和需求至少有一项
+    # 验证：文字与目录至少有一项（二者合并为同一需求的不同来源）
     if not requirement and not directory:
-        raise HTTPException(400, "请输入需求或选择已有项目目录")
+        raise HTTPException(400, "请输入文字说明，或选择资料/代码目录（可两者同时填写）")
 
-    # 目录非空 + 需求为空 → 自动生成需求
-    if not requirement and directory:
-        if not os.path.isdir(directory):
-            raise HTTPException(400, f"项目目录不存在或无效: {directory}")
-        requirement = "请分析现有项目代码，找出可优化、修复或完善的地方，并执行相应开发"
+    from workflow.requirement_context import persist_requirement_text, user_instruction
 
-    # 验证目录有效性
     if directory and not os.path.isdir(directory):
-        raise HTTPException(400, f"项目目录不存在或无效: {directory}")
+        raise HTTPException(400, f"目录不存在或无效: {directory}")
+
+    stored_requirement = persist_requirement_text(requirement, directory or None)
+    agent_requirement = user_instruction(requirement)
 
     # ── 目录去重：同一目录只允许一个活跃项目（force_new 跳过）──
     from sqlalchemy import select as sql_select
@@ -358,7 +401,8 @@ async def create_project(
     async with async_session_factory() as db:
         project = Project(
             project_id=project_id,
-            requirement=requirement,
+            requirement=stored_requirement,
+            display_name=_default_display_name(stored_requirement),
             directory=directory if directory else None,
             status=ProjectStatus.CREATED,
         )
@@ -368,7 +412,7 @@ async def create_project(
     # 后台启动统一工作流
     state: WorkflowState = {
         "project_id": project_id,
-        "requirement": requirement,
+        "requirement": agent_requirement,
         "directory": directory,
         "project_context": "",
         "alignment_result": {},
@@ -425,12 +469,14 @@ async def get_history(limit: int = 20) -> list[dict[str, Any]]:
         return [
             {
                 "project_id": p.project_id,
+                "display_name": p.display_name or "",
                 "requirement": p.requirement[:100] + "..."
                 if len(p.requirement) > 100
                 else p.requirement,
                 "status": p.status.value,
                 "directory": p.directory,
                 "blocked_count": p.blocked_count,
+                "iteration": p.iteration or 1,
                 "created_at": p.created_at.isoformat(),
                 "updated_at": p.updated_at.isoformat(),
                 "is_stale": _is_stale_project(p),
@@ -443,6 +489,19 @@ async def get_history(limit: int = 20) -> list[dict[str, Any]]:
             }
             for p in projects
         ]
+
+
+def _default_display_name(requirement: str, max_len: int = 80) -> str | None:
+    """从需求首行生成默认历史标题。"""
+    text = (requirement or "").strip()
+    if not text:
+        return None
+    first_line = text.splitlines()[0].strip()
+    if not first_line:
+        return None
+    if len(first_line) > max_len:
+        return first_line[: max_len - 1] + "…"
+    return first_line
 
 
 def _is_stale_project(project: Project) -> bool:
@@ -461,7 +520,7 @@ def _is_stale_project(project: Project) -> bool:
 async def _delete_project_impl(
     project_id: str,
     *,
-    delete_deliveries: bool = False,
+    delete_deliveries: bool = True,
 ) -> dict[str, Any]:
     """删除历史项目（运行中项目会先终止）。"""
     from database.db import async_session_factory
@@ -495,7 +554,7 @@ async def _delete_project_impl(
 @app.delete("/api/projects/{project_id}")
 async def delete_project(
     project_id: str,
-    delete_deliveries: bool = False,
+    delete_deliveries: bool = True,
 ) -> dict[str, Any]:
     """DELETE /api/projects/{project_id}?delete_deliveries=true"""
     return await _delete_project_impl(
@@ -506,7 +565,7 @@ async def delete_project(
 @app.post("/api/projects/{project_id}/delete")
 async def delete_project_post(
     project_id: str,
-    delete_deliveries: bool = False,
+    delete_deliveries: bool = True,
 ) -> dict[str, Any]:
     """POST /api/projects/{project_id}/delete?delete_deliveries=true（与 DELETE 等效）"""
     return await _delete_project_impl(
@@ -571,6 +630,237 @@ async def get_project(project_id: str) -> dict[str, Any]:
     if not snapshot:
         raise HTTPException(404, "项目不存在")
     return snapshot
+
+
+@app.patch("/api/projects/{project_id}/display_name")
+async def update_project_display_name(
+    project_id: str,
+    body: UpdateDisplayNameRequest,
+) -> dict[str, Any]:
+    """更新历史项目自定义标题。
+
+    PATCH /api/projects/{project_id}/display_name
+    """
+    from database.db import async_session_factory
+    from sqlalchemy import select
+
+    name = body.display_name.strip()
+    if not name:
+        raise HTTPException(400, "标题不能为空")
+
+    async with async_session_factory() as db:
+        result = await db.execute(
+            select(Project).where(Project.project_id == project_id)
+        )
+        project = result.scalar_one_or_none()
+        if not project:
+            raise HTTPException(404, "项目不存在")
+        project.display_name = name[:128]
+        await db.commit()
+
+    return {
+        "project_id": project_id,
+        "display_name": name[:128],
+    }
+
+
+@app.post("/api/projects/{project_id}/iterate")
+async def iterate_project(
+    project_id: str,
+    body: IterateProjectRequest,
+) -> dict[str, Any]:
+    """在同一项目上开始下一轮迭代（补跑 blocked / 重新集成交付）。
+
+    POST /api/projects/{project_id}/iterate
+    """
+    from database.db import async_session_factory
+    from sqlalchemy import select
+
+    from workflow.requirement_context import (
+        append_requirement_addendum,
+        build_effective_requirement,
+        build_iteration_context,
+        parse_requirement_addenda,
+    )
+    from workflow.state_builder import build_workflow_state_from_db
+
+    if _running_tasks.get(project_id):
+        raise HTTPException(409, "项目正在运行中，请稍后再试")
+
+    async with async_session_factory() as db:
+        result = await db.execute(
+            select(Project).where(Project.project_id == project_id)
+        )
+        project = result.scalar_one_or_none()
+        if not project:
+            raise HTTPException(404, "项目不存在")
+        if project.status == ProjectStatus.FINALIZED:
+            raise HTTPException(400, "项目已标记定稿，无法继续迭代")
+        if project.status not in {
+            ProjectStatus.COMPLETED,
+            ProjectStatus.NEEDS_REVIEW,
+        }:
+            raise HTTPException(
+                400,
+                "仅已完成或需审查的项目可开始迭代（当前状态: "
+                f"{project.status.value}）",
+            )
+        if not project.plan_json:
+            raise HTTPException(400, "项目缺少规划数据，无法迭代")
+
+        addendum_text = (body.addendum or "").strip()
+        new_iteration = (project.iteration or 1) + 1
+        if addendum_text:
+            project.requirement_addendum_json = append_requirement_addendum(
+                project.requirement_addendum_json,
+                text=addendum_text,
+                round_num=new_iteration,
+            )
+        project.iteration = new_iteration
+        project.status = ProjectStatus.EXECUTING
+        await db.commit()
+
+    built = await build_workflow_state_from_db(project_id)
+    if not built:
+        raise HTTPException(404, "无法重建项目状态")
+    state, _project = built
+    state["iteration"] = new_iteration
+
+    addenda = parse_requirement_addenda(_project.requirement_addendum_json)
+    state["requirement"] = build_effective_requirement(
+        _project.requirement, addenda
+    )
+    state["base_requirement"] = _project.requirement
+    state["requirement_addendum_json"] = _project.requirement_addendum_json
+    state["project_context"] = build_iteration_context(
+        iteration=new_iteration,
+        addendum_text=addendum_text,
+        global_review=state.get("global_review"),
+    )
+
+    blocked = list(state.get("blocked_modules") or [])
+    if body.module_names:
+        target_modules = [n.strip() for n in body.module_names if n.strip()]
+        reintegrate_only = False
+    elif blocked:
+        target_modules = blocked
+        reintegrate_only = False
+    elif addendum_text:
+        target_modules = []
+        reintegrate_only = True
+    else:
+        raise HTTPException(
+            400,
+            "请填写需求补充说明，或指定要补跑的模块（当前无 blocked 模块）",
+        )
+
+    from workflow.document_sync import ctx_from_project, sync_iteration_start
+
+    doc_ctx = ctx_from_project(_project, plan_modules=state.get("plan_modules"))
+    doc_ctx.iteration = new_iteration
+    sync_iteration_start(
+        doc_ctx,
+        addendum_text=addendum_text,
+        target_modules=target_modules,
+        reintegrate_only=reintegrate_only,
+    )
+
+    await push_log(
+        project_id,
+        "INFO",
+        f"🔄 用户启动第 {new_iteration} 轮迭代"
+        + (f"，补充：{addendum_text[:80]}…" if len(addendum_text) > 80
+           else (f"，补充：{addendum_text}" if addendum_text else "")),
+    )
+
+    _register_task(
+        project_id,
+        _run_improvement(
+            project_id,
+            state,
+            target_modules,
+            reintegrate_only=reintegrate_only,
+        ),
+    )
+
+    return {
+        "project_id": project_id,
+        "iteration": new_iteration,
+        "status": "executing",
+        "target_modules": target_modules,
+        "reintegrate_only": reintegrate_only,
+    }
+
+
+@app.patch("/api/projects/{project_id}/requirement_addendum")
+async def append_requirement_addendum_only(
+    project_id: str,
+    body: RequirementAddendumRequest,
+) -> dict[str, Any]:
+    """追加需求补充记录（不立即启动迭代）。"""
+    from database.db import async_session_factory
+    from sqlalchemy import select
+
+    from workflow.requirement_context import append_requirement_addendum
+
+    text = body.text.strip()
+    if not text:
+        raise HTTPException(400, "补充内容不能为空")
+
+    async with async_session_factory() as db:
+        result = await db.execute(
+            select(Project).where(Project.project_id == project_id)
+        )
+        project = result.scalar_one_or_none()
+        if not project:
+            raise HTTPException(404, "项目不存在")
+        round_num = (project.iteration or 1) + 1
+        project.requirement_addendum_json = append_requirement_addendum(
+            project.requirement_addendum_json,
+            text=text,
+            round_num=round_num,
+        )
+        await db.commit()
+
+    return {"project_id": project_id, "saved": True}
+
+
+@app.post("/api/projects/{project_id}/finalize")
+async def finalize_project(project_id: str) -> dict[str, Any]:
+    """标记项目定稿，不再提示继续迭代；同步 ACCEPTANCE 与平台 LEARNINGS。"""
+    from database.db import async_session_factory
+    from sqlalchemy import select
+
+    from workflow.document_sync import build_ctx_from_workflow_state, sync_on_finalize
+    from workflow.state_builder import build_workflow_state_from_db
+
+    async with async_session_factory() as db:
+        result = await db.execute(
+            select(Project).where(Project.project_id == project_id)
+        )
+        project = result.scalar_one_or_none()
+        if not project:
+            raise HTTPException(404, "项目不存在")
+        if project.status not in {
+            ProjectStatus.COMPLETED,
+            ProjectStatus.NEEDS_REVIEW,
+        }:
+            raise HTTPException(400, "仅已完成的项目可标记定稿")
+        project.status = ProjectStatus.FINALIZED
+        await db.commit()
+        delivery_path = project.delivery_path or ""
+
+    try:
+        built = await build_workflow_state_from_db(project_id)
+        if built:
+            state, _ = built
+            ctx = build_ctx_from_workflow_state(state)
+            sync_on_finalize(ctx, delivery_path=delivery_path)
+            await push_log(project_id, "INFO", "📄 已生成 ACCEPTANCE.md 并同步定稿文档")
+    except Exception as exc:
+        await push_log(project_id, "WARN", f"定稿文档同步失败: {exc}")
+
+    return {"project_id": project_id, "status": "finalized"}
 
 
 @app.get("/api/projects/{project_id}/logs/recent")
@@ -796,7 +1086,12 @@ async def confirm_plan(
                     f"{tech_requirement[:200]}...",
                 )
 
-            # 将最终对齐计划写入 DELIVERY_PLAN.md
+            # 文档同步：PRODUCT + DELIVERY_PLAN
+            from workflow.document_sync import ctx_from_project, sync_after_alignment_confirm
+
+            sync_after_alignment_confirm(
+                ctx_from_project(project, alignment=alignment_result)
+            )
             _write_delivery_plan(project_id, project)
 
             # 用户选方案
@@ -929,8 +1224,23 @@ async def download_project(project_id: str) -> FileResponse:
 
     GET /api/projects/{project_id}/download
     """
-    zip_path = DELIVERIES_DIR / f"{project_id}.zip"
-    if not zip_path.exists():
+    from sqlalchemy import select
+
+    from database.db import async_session_factory
+    from database.models import Project
+    from workflow.delivery_paths import resolve_delivery_zip
+
+    delivery_path: str | None = None
+    async with async_session_factory() as db:
+        result = await db.execute(
+            select(Project).where(Project.project_id == project_id)
+        )
+        project = result.scalar_one_or_none()
+        if project:
+            delivery_path = project.delivery_path
+
+    zip_path = resolve_delivery_zip(project_id, delivery_path)
+    if not zip_path:
         raise HTTPException(404, "交付物尚未生成")
 
     return FileResponse(
@@ -1257,6 +1567,32 @@ async def clean_logs_endpoint(days: int = 7, dry_run: bool = False) -> dict[str,
     return result
 
 
+@app.get("/api/maintenance/delivery-suggestions")
+async def delivery_suggestions_endpoint() -> dict[str, Any]:
+    """扫描 deliveries 目录，返回可安全删除的交付物建议。
+
+    GET /api/maintenance/delivery-suggestions
+    """
+    from workflow.delivery_suggestions import scan_delivery_cleanup_suggestions
+
+    known = await _all_project_ids()
+    return scan_delivery_cleanup_suggestions(known)
+
+
+@app.post("/api/maintenance/delivery-cleanup")
+async def delivery_cleanup_endpoint(body: DeliveryCleanupRequest) -> dict[str, Any]:
+    """按建议路径删除 deliveries 冗余交付物。
+
+    POST /api/maintenance/delivery-cleanup
+    """
+    from workflow.delivery_suggestions import apply_delivery_cleanup
+
+    if not body.paths:
+        raise HTTPException(400, "请指定要删除的路径")
+    known = await _all_project_ids()
+    return apply_delivery_cleanup(body.paths, known, dry_run=body.dry_run)
+
+
 # ── 后台工作流执行 ────────────────────────────────────────
 
 def _build_business_tech_requirement(
@@ -1396,60 +1732,27 @@ def _record_alignment_to_decisions(project_id: str, alignment_json_str: str | No
 
 
 def _write_delivery_plan(project_id: str, project: Any) -> None:
-    """将用户确认后的最终执行计划写入 DELIVERY_PLAN.md。"""
-    from config import DELIVERIES_DIR as deliveries_dir
+    """将用户确认后的最终执行计划写入 DELIVERY_PLAN.md（根目录兼容副本）。"""
+    from workflow.document_sync import ctx_from_project, sync_delivery_plan
 
-    plan_dir = deliveries_dir / project_id
-    plan_dir.mkdir(parents=True, exist_ok=True)
-
-    lines = [
-        "# 执行计划 (DELIVERY PLAN)",
-        "",
-        f"> 项目: {project_id}",
-        f"> 确认时间: {datetime.now(timezone.utc).isoformat()}",
-        "",
-    ]
-
-    # 写入对齐分析结果
+    alignment = None
     if project.alignment_json:
         try:
             alignment = json.loads(project.alignment_json)
-            lines.append(f"## 摘要")
-            lines.append(f"{alignment.get('summary', 'N/A')}")
-            lines.append("")
-
-            assumptions = alignment.get("assumptions", [])
-            if assumptions:
-                lines.append("## 假设")
-                for a in assumptions:
-                    lines.append(f"- {a}")
-                lines.append("")
-
-            risks = alignment.get("risks", [])
-            if risks:
-                lines.append("## 风险")
-                for r in risks:
-                    lines.append(f"- {r}")
-                lines.append("")
-
-            plan = alignment.get("plan", [])
-            if plan:
-                lines.append("## 计划模块")
-                lines.append("")
-                for i, m in enumerate(plan, 1):
-                    lines.append(f"### {i}. {m.get('module', '未命名')}")
-                    lines.append(f"- **描述**: {m.get('description', 'N/A')}")
-                    lines.append(f"- **原因**: {m.get('reason', 'N/A')}")
-                    lines.append(f"- **类型**: {m.get('type', 'backend')}")
-                    lines.append("")
-        except Exception:
-            lines.append("（对齐数据解析失败）")
-            lines.append("")
-
-    plan_path = plan_dir / "DELIVERY_PLAN.md"
+        except (json.JSONDecodeError, TypeError):
+            alignment = None
+    ctx = ctx_from_project(project, alignment=alignment)
+    sync_delivery_plan(ctx, event="alignment_confirmed")
+    # 根目录保留一份指针，便于早期工具链
+    docs_plan = DELIVERIES_DIR / project_id / "docs" / "DELIVERY_PLAN.md"
+    legacy = DELIVERIES_DIR / project_id / "DELIVERY_PLAN.md"
     try:
-        plan_path.write_text("\n".join(lines), encoding="utf-8")
-    except Exception:
+        legacy.parent.mkdir(parents=True, exist_ok=True)
+        if docs_plan.is_file():
+            legacy.write_text(
+                docs_plan.read_text(encoding="utf-8"), encoding="utf-8"
+            )
+    except OSError:
         pass
 
 
@@ -1502,6 +1805,7 @@ async def _save_state(project_id: str, final_state: WorkflowState) -> None:
             "reviewing": ProjectStatus.REVIEWING,
             "needs_review": ProjectStatus.NEEDS_REVIEW,
             "cancelled": ProjectStatus.CANCELLED,
+            "finalized": ProjectStatus.FINALIZED,
         }
         project.status = status_map.get(
             final_state.get("status", "failed"), ProjectStatus.FAILED
@@ -1524,6 +1828,8 @@ async def _save_state(project_id: str, final_state: WorkflowState) -> None:
         review = final_state.get("global_review", {})
         if review:
             project.final_report = json.dumps(review, ensure_ascii=False)
+        if final_state.get("iteration") is not None:
+            project.iteration = int(final_state["iteration"])
         for module_name, result_data in final_state.get(
             "module_results", {}
         ).items():
@@ -1546,6 +1852,41 @@ async def _save_state(project_id: str, final_state: WorkflowState) -> None:
                 mod.failure_reason = result_data.get("failure_reason", "")
                 db.add(mod)
         await db.commit()
+
+
+async def _run_improvement(
+    project_id: str,
+    state: WorkflowState,
+    target_modules: list[str],
+    *,
+    reintegrate_only: bool = False,
+) -> None:
+    """后台：迭代改进（补跑模块 → 集成 → 审查 → 打包）。"""
+    import traceback as _tb
+
+    final_state = None
+    try:
+        final_state = await _executor.execute_improvement(
+            state,
+            target_modules,
+            reintegrate_only=reintegrate_only,
+        )
+        if final_state.get("iteration") is None:
+            final_state["iteration"] = state.get("iteration", 1)
+        await _save_state(project_id, final_state)
+    except Exception as exc:
+        err_msg = f"迭代改进异常: {exc}"
+        await push_log(project_id, "ERROR", err_msg)
+        await push_log(project_id, "ERROR", _tb.format_exc())
+        try:
+            state["status"] = "needs_review"
+            state.setdefault("errors", []).append(err_msg)
+            await _save_state(project_id, state)
+        except Exception:
+            pass
+    finally:
+        await asyncio.sleep(5)
+        remove_log_queue(project_id)
 
 
 async def _run_workflow(

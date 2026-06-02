@@ -330,7 +330,7 @@ async def closed_loop_repair(
         review_issues: 审查指出的问题列表
         failure_reason: 失败原因描述
         do_code: 编码回调 async fn(module_name, spec, feedback) -> ModuleCode
-        do_review: 审查回调 async fn(module_name, summary, code, test_code, retry) -> ReviewResult
+        do_review: 审查回调 async fn(module_name, summary, code, test_code, retry_count=0) -> ReviewResult
         do_repair: 修复回调 async fn(module_output, history_cases) -> RepairResult
         do_test: 测试回调 async fn(module_name, test_code, module_code="") -> TestResult | None
         push_log: 日志回调 async fn(pid, level, msg, module_name)

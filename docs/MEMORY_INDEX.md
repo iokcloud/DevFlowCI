@@ -35,11 +35,14 @@
 | 变更记录 | `CHANGELOG.md` | — |
 | 缺陷追踪 | `BUG_TRACKER.md` | — |
 | 会话归档 | `sessions/<YYYYMMDD-NN>/summary.md` | — |
+| **Chat 接续** | `HANDOFF.md`（自动生成） | — |
+| Checkpoint | `sessions/<id>/checkpoint.md` | — |
 
 ## 写入规则
 
 | 事件 | 写入目标 |
 |------|----------|
+| 换 Chat / 会话切换 | `HANDOFF.md` + `scripts/session_checkpoint.bat` |
 | 会话结束 | `sessions/<id>/summary.md` + `CURRENT_STATUS.md` |
 | 新决策 | `docs/decisions.md` |
 | Bug 修复 / 踩坑 | `docs/LEARNINGS.md` + 必要时 `BUG_TRACKER.md` |
@@ -50,6 +53,19 @@
 ## 健康检查
 
 运行 `scripts/session_start.sh` 或 `scripts/session_start.bat` 可自动检查记忆文件是否存在及行数。
+
+**换 Chat 前（推荐）**：
+
+```powershell
+scripts\session_checkpoint.bat "下一 chat 的唯一目标"
+# 或: python scripts/session_checkpoint.py --next-goal "你的目标"
+```
+
+生成/刷新：`HANDOFF.md`、`CURRENT_STATUS.md` 自动区块、`sessions/<id>/checkpoint.md`。
+
+模板见 `docs/templates/`（`CURRENT_STATUS.template.md`、`session-summary.template.md`、`NEW_CHAT_HANDOFF.template.md`）。
+
+Cursor 规则：`.cursor/rules/session-handoff.mdc`（`alwaysApply: true`）。
 
 记忆检索：
 

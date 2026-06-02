@@ -41,6 +41,7 @@ class ProjectStatus(str, enum.Enum):
     FAILED = "failed"              # 失败
     NEEDS_REVIEW = "needs_review"  # 需要人工介入
     CANCELLED = "cancelled"        # 用户手动终止
+    FINALIZED = "finalized"        # 用户标记定稿，不再提示迭代
 
 
 class ModuleStatus(str, enum.Enum):
@@ -75,6 +76,7 @@ class Project(Base):
         String(64), unique=True, nullable=False, index=True
     )
     requirement: Mapped[str] = Column(Text, nullable=False)
+    display_name: Mapped[Optional[str]] = Column(String(128), nullable=True)
     directory: Mapped[Optional[str]] = Column(String(512), nullable=True)
     status: Mapped[ProjectStatus] = Column(
         Enum(ProjectStatus), nullable=False, default=ProjectStatus.CREATED
@@ -86,6 +88,8 @@ class Project(Base):
     delivery_path: Mapped[Optional[str]] = Column(String(512), nullable=True)
     test_report_path: Mapped[Optional[str]] = Column(String(512), nullable=True)
     blocked_count: Mapped[int] = Column(Integer, default=0)
+    iteration: Mapped[int] = Column(Integer, default=1)
+    requirement_addendum_json: Mapped[Optional[str]] = Column(Text, nullable=True)
 
     created_at: Mapped[datetime] = Column(
         DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
