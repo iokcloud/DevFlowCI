@@ -101,19 +101,20 @@ AUTO_FIX_RETRY_BACKOFF: float = 2.0        # 退避因子（指数退避基数�
 AUTO_FIX_STRATEGIES: list[str] = [
     "direct_retry",         # a) 直接重试（带指数退避）
     "modify_code",          # b) 修改代码/测试
-    "repair_agent",         # c) RepairAgent 反思修复
-    "history_case",         # d) 检索历史案例修复
-    "block_with_stub",      # e) 生成占位文件并阻塞
+    "add_error_handling",   # c) 专项添加异常处理（try-except）
+    "repair_agent",         # d) RepairAgent 反思修复
+    "history_case",         # e) 检索历史案例修复
+    "block_with_stub",      # f) 生成占位文件并阻塞
 ]
 
 # 错误类型 → 策略映射
 ERROR_FIX_STRATEGY_MAP: dict[str, list[str]] = {
     "api_timeout":              ["direct_retry", "block_with_stub"],
     "api_rate_limit":           ["direct_retry", "block_with_stub"],
-    "syntax_error":             ["modify_code", "repair_agent", "history_case", "block_with_stub"],
-    "test_failure":             ["modify_code", "repair_agent", "history_case", "block_with_stub"],
-    "test_execution_failure":   ["modify_code", "repair_agent", "history_case", "block_with_stub"],
-    "review_fail":              ["modify_code", "repair_agent", "history_case", "block_with_stub"],
+    "syntax_error":             ["modify_code", "add_error_handling", "repair_agent", "history_case", "block_with_stub"],
+    "test_failure":             ["modify_code", "add_error_handling", "repair_agent", "history_case", "block_with_stub"],
+    "test_execution_failure":   ["modify_code", "add_error_handling", "repair_agent", "history_case", "block_with_stub"],
+    "review_fail":              ["modify_code", "add_error_handling", "repair_agent", "history_case", "block_with_stub"],
     "dependency_missing":       ["modify_code", "repair_agent", "block_with_stub"],
     "unknown":                  ["repair_agent", "history_case", "block_with_stub"],
 }

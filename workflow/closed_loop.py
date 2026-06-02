@@ -388,9 +388,9 @@ async def closed_loop_repair(
 
     # 确定尝试策略优先级（跳过已知失败的）
     strategy_order = (
-        ["modify_code", "repair_agent", "history_case", "direct_retry"]
+        ["modify_code", "add_error_handling", "repair_agent", "history_case", "direct_retry"]
         if feedback
-        else ["direct_retry", "modify_code", "repair_agent", "history_case"]
+        else ["direct_retry", "modify_code", "add_error_handling", "repair_agent", "history_case"]
     )
     strategies: list[str] = [
         s for s in strategy_order if s not in failed_strategies_set
@@ -402,7 +402,7 @@ async def closed_loop_repair(
             f"[闭环修复][{module_name}] 所有策略均已尝试失败，使用全部策略重试",
             module_name=module_name,
         )
-        strategies = ["direct_retry", "modify_code", "repair_agent", "history_case"]
+        strategies = ["direct_retry", "modify_code", "add_error_handling", "repair_agent", "history_case"]
 
     # ── 步骤2：闭环修复循环 ──
     total_rounds = 0
@@ -529,6 +529,66 @@ async def closed_loop_repair(
                         issues = review_result.issues if hasattr(review_result, 'issues') else review_result.get('issues', [])
                         feedback = "审查反馈：\n" + "\n".join(f"  - {i}" for i in issues)
                         code_obj = await do_code(module_name, spec_detail, feedback)
+                        code = code_obj.code if hasattr(code_obj, 'code') else code_obj.get('code', '')
+                        test_code = code_obj.test_code if hasattr(code_obj, 'test_code') else code_obj.get('test_code', '')
+
+                feedback = "审查反馈：\n" + "\n".join(f"  - {i}" for i in (review_result.issues if hasattr(review_result, 'issues') else []))
+
+            elif strategy == "add_error_handling":
+                await push_log(project_id, "INFO", f"[闭环修复·错误处理][{module_name}] 专项注入异常处理要求...", module_name=module_name)
+                eh_feedback = (
+                    feedback
+                    + "\n\n【强制要求 - 添加异常处理】"
+                    + "\n必须为以下外部调用添加 try-except 包裹："
+                    + "\n1. 文件读写（open/read/write/Path.read_text/Path.write_text）"
+                    + "\n2. API/网络请求"
+                    + "\n3. 数据库操作"
+                    + "\n4. JSON 解析"
+                    + "\n捕获异常后应：记录日志并 raise RuntimeError，或返回安全的默认值（如空列表/空字典/None）。"
+                    + "\n同时为这些异常路径编写对应的测试用例。"
+                )
+                code_obj = await do_code(module_name, spec_detail, eh_feedback)
+                code = code_obj.code if hasattr(code_obj, 'code') else code_obj.get('code', '')
+                test_code = code_obj.test_code if hasattr(code_obj, 'test_code') else code_obj.get('test_code', '')
+
+                for qr in range(quick_review_max):
+                    review_result = await do_review(
+                        module_name, spec_summary, code, test_code, retry_count=total_rounds,
+                    )
+                    review_passed = review_result.passed if hasattr(review_result, 'passed') else review_result.get('passed', False)
+
+                    if review_passed:
+                        test_ok = True
+                        try:
+                            test_result = await do_test(module_name, test_code, code)
+                            test_ok = test_result.passed if test_result and hasattr(test_result, 'passed') else True
+                        except Exception:
+                            test_ok = False
+
+                        if test_ok:
+                            fix_entry["success"] = True
+                            fix_entry["detail"] = f"添加异常处理成功（快速审查第{qr+1}次）· 测试通过"
+                            fix_history.append(fix_entry)
+                            await record_fix_attempt(
+                                project_id, module_name, error_type.value, failure_reason,
+                                strategy, total_rounds, True,
+                                fix_summary=f"添加异常处理+{qr+1}次审查+测试通过",
+                                code_before=current_code, code_after=code,
+                                test_result="passed", loop_count=loop_count,
+                            )
+                            await push_log(project_id, "SUCCESS", f"[闭环修复][{module_name}] 添加异常处理+测试验证通过！", module_name=module_name)
+                            await _resolve_and_cleanup(project_id, module_name, push_log)
+                            return ClosedLoopResult(
+                                success=True, module_name=module_name,
+                                fix_summary="添加异常处理+审查通过", total_rounds=total_rounds,
+                                strategy_used=strategy, code=code, test_code=test_code,
+                                fix_history=fix_history,
+                            )
+
+                    if qr < quick_review_max - 1:
+                        issues = review_result.issues if hasattr(review_result, 'issues') else review_result.get('issues', [])
+                        eh_feedback = "审查反馈：\n" + "\n".join(f"  - {i}" for i in issues)
+                        code_obj = await do_code(module_name, spec_detail, eh_feedback)
                         code = code_obj.code if hasattr(code_obj, 'code') else code_obj.get('code', '')
                         test_code = code_obj.test_code if hasattr(code_obj, 'test_code') else code_obj.get('test_code', '')
 
