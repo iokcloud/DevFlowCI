@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from config import LLM_MAX_TOKENS
 from memory.case_store import CaseStore
 from utils import create_llm_json, extract_json
 
@@ -144,7 +143,7 @@ class ModuleAgents:
     def __init__(self, case_store: CaseStore | None = None) -> None:
         self._case_store = case_store
         self._llm = create_llm_json()
-        self._coder_llm = create_llm_json(max_tokens=LLM_MAX_TOKENS * 2)
+        self._coder_llm = create_llm_json()
 
     async def analyze(
         self, module_name: str, description: str, project_context: str = "",

@@ -19,7 +19,6 @@ from config import (
     DEEPSEEK_API_KEY,
     DEEPSEEK_BASE_URL,
     DEEPSEEK_MODEL,
-    LLM_MAX_TOKENS,
     LLM_TEMPERATURE,
     LLM_TIMEOUT_SECONDS,
 )
@@ -114,7 +113,7 @@ async def stream_deepseek_call(
     *,
     model: str = DEEPSEEK_MODEL,
     temperature: float = LLM_TEMPERATURE,
-    max_tokens: int = LLM_MAX_TOKENS,
+    max_tokens: int | None = None,
     timeout: int = LLM_TIMEOUT_SECONDS,
     log_callback=None,
     thinking: str | None = "disabled",
@@ -169,7 +168,9 @@ async def stream_deepseek_call(
             "stream": True,
         }
         if thinking:
-            payload["extra_body"] = {"thinking": {"type": thinking}}
+            # 直接 HTTP 调用：thinking / reasoning_effort 是 API 顶层参数，
+            # 不经过 OpenAI SDK 的 extra_body 解包，直接放到 payload 顶层
+            payload["thinking"] = {"type": thinking}
             if thinking == "enabled":
                 from config import DEEPSEEK_REASONING_EFFORT
                 payload["reasoning_effort"] = DEEPSEEK_REASONING_EFFORT

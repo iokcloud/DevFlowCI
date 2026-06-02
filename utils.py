@@ -155,14 +155,16 @@ def create_llm(
     Returns:
         配置完成的 ChatOpenAI 客户端实例
     """
+    _mt = max_tokens if max_tokens is not None else LLM_MAX_TOKENS
     kwargs: dict[str, Any] = {
         "model": model if model is not None else DEEPSEEK_MODEL,
         "api_key": DEEPSEEK_API_KEY,
         "base_url": DEEPSEEK_BASE_URL,
-        "max_tokens": max_tokens if max_tokens is not None else LLM_MAX_TOKENS,
         "timeout": timeout if timeout is not None else LLM_TIMEOUT_SECONDS,
         "max_retries": max_retries if max_retries is not None else LLM_MAX_RETRIES,
     }
+    if _mt is not None:
+        kwargs["max_tokens"] = _mt
 
     model_kwargs: dict[str, Any] = {}
     extra_body: dict[str, Any] = {}
@@ -173,7 +175,7 @@ def create_llm(
     if thinking is not None:
         extra_body["thinking"] = {"type": thinking}
         if thinking == "enabled":
-            kwargs["reasoning_effort"] = reasoning_effort or DEEPSEEK_REASONING_EFFORT
+            extra_body["reasoning_effort"] = reasoning_effort or DEEPSEEK_REASONING_EFFORT
         else:
             kwargs["temperature"] = (
                 temperature if temperature is not None else LLM_TEMPERATURE

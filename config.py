@@ -54,7 +54,7 @@ DEEPSEEK_REASONING_EFFORT: str = os.getenv("DEEPSEEK_REASONING_EFFORT", "high")
 
 # LLM 调用参数
 LLM_TEMPERATURE: float = 0.3       # 主 Agent 用较低温度保证输出稳定
-LLM_MAX_TOKENS: int = 4096
+LLM_MAX_TOKENS: int | None = None  # 不限制，由 API 自行决定
 LLM_TIMEOUT_SECONDS: int = 120     # HTTP 超时
 LLM_MAX_RETRIES: int = 3           # 失败重试次数
 
