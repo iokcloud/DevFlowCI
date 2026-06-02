@@ -43,5 +43,5 @@ echo ""
 # 打开浏览器
 sleep 1 && start "" "http://localhost:8000" 2>/dev/null &
 
-# 启动服务器
-python -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload
+# 启动服务器（使用 main.py 内置的 reload 配置，排除 deliveries 等工作流输出目录）
+python main.py

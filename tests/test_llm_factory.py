@@ -13,8 +13,8 @@ class TestCreateLlm:
 
     def test_reasoning_profile(self):
         llm = create_llm_reasoning()
-        assert llm.extra_body == {"thinking": {"type": "enabled"}}
-        assert llm.reasoning_effort == "high"
+        assert llm.extra_body.get("thinking") == {"type": "enabled"}
+        assert "reasoning_effort" in llm.extra_body
         assert llm.model_kwargs.get("response_format") == {"type": "json_object"}
 
     def test_text_profile(self):

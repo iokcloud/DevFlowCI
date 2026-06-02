@@ -68,6 +68,66 @@ const els = {
     welcomePanel: $("#welcome-panel"),
 };
 
+// ── 目录选择器初始化 ────────────────────────────────
+function setupDirectorySelector() {
+    if (els.dirSelector) {
+        els.dirSelector.addEventListener("click", () => {
+            openDirectoryBrowser();
+        });
+    }
+    if (els.btnClearDir) {
+        els.btnClearDir.addEventListener("click", () => {
+            clearSelectedDirectory();
+        });
+    }
+}
+
+function clearSelectedDirectory() {
+    selectedDirectory = "";
+    updateDirectoryDisplay();
+}
+
+function updateDirectoryDisplay() {
+    if (els.dirSelectorText) {
+        if (selectedDirectory) {
+            const parts = selectedDirectory.split(/[\\/]/);
+            els.dirSelectorText.textContent = parts[parts.length - 1] || selectedDirectory;
+            els.dirSelectorText.title = selectedDirectory;
+        } else {
+            els.dirSelectorText.textContent = "点击选择本地目录…";
+            els.dirSelectorText.removeAttribute("title");
+        }
+    }
+    if (els.btnClearDir) {
+        els.btnClearDir.classList.toggle("hidden", !selectedDirectory);
+    }
+    const forceNew = document.getElementById("force-new-wrap");
+    if (forceNew) {
+        forceNew.classList.toggle("hidden", !selectedDirectory);
+    }
+}
+
+// ── 健康检查 ─────────────────────────────────────────
+async function checkHealth() {
+    const el = els.health;
+    if (!el) return;
+    try {
+        const data = await requestQueue.fetch(API_BASE + "/api/health", {
+            priority: RequestPriority.LOW,
+        });
+        if (data && data.status === "ok") {
+            el.textContent = "● 服务正常";
+            el.className = "health ok";
+        } else {
+            el.textContent = "● 服务异常";
+            el.className = "health error";
+        }
+    } catch (_e) {
+        el.textContent = "● 连接失败";
+        el.className = "health error";
+    }
+}
+
 // ── 初始化 ──────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
     setupSubmit();
