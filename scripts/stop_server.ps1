@@ -1,4 +1,4 @@
-# Stop DevFlow CI uvicorn on port 8000 (handles --reload worker processes)
+# Stop DevFlow CI uvicorn on port 8000
 param(
     [int]$Port = 8000
 )
@@ -25,7 +25,7 @@ Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue |
         Stop-ProcSafe $_.OwningProcess
     }
 
-# 2) netstat LISTENING PIDs (reloader parent may still appear here)
+# 2) netstat LISTENING PIDs
 netstat -ano | Select-String ":$Port\s+.*LISTENING" | ForEach-Object {
     if ($_.Line -match "\s(\d+)\s*$") {
         $pid = [int]$Matches[1]
@@ -34,7 +34,7 @@ netstat -ano | Select-String ":$Port\s+.*LISTENING" | ForEach-Object {
     }
 }
 
-# 3) uvicorn main:app (reloader / direct)
+# 3) uvicorn main:app (direct)
 Get-CimInstance Win32_Process |
     Where-Object { $_.CommandLine -and $_.CommandLine -match "uvicorn" -and $_.CommandLine -match "main:app" } |
     ForEach-Object {
@@ -42,11 +42,11 @@ Get-CimInstance Win32_Process |
         Stop-ProcSafe $_.ProcessId
     }
 
-# 4) uvicorn --reload worker (multiprocessing spawn)
+# 4) uvicorn worker (multiprocessing spawn)
 Get-CimInstance Win32_Process |
     Where-Object { $_.CommandLine -and $_.CommandLine -match "multiprocessing\.spawn.*spawn_main" } |
     ForEach-Object {
-        Write-Host "Kill reload worker PID $($_.ProcessId)"
+        Write-Host "Kill worker PID $($_.ProcessId)"
         Stop-ProcSafe $_.ProcessId
     }
 

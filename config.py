@@ -46,7 +46,7 @@ class ErrorType(str, enum.Enum):
 # ── DeepSeek / LLM 配置 ───────────────────────────────────
 DEEPSEEK_API_KEY: str = os.getenv("DEEPSEEK_API_KEY", "")
 DEEPSEEK_BASE_URL: str = os.getenv(
-    "DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1"
+    "DEEPSEEK_BASE_URL", "https://api.deepseek.com"
 )
 DEEPSEEK_MODEL: str = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-pro")
 # V4 thinking 模式 effort：high | max（仅 thinking=enabled 时生效）

@@ -63,7 +63,6 @@ echo.
 
 start /b cmd /c "ping 127.0.0.1 -n 3 >nul && start http://127.0.0.1:%PORT%/"
 
-REM 使用 main.py 内置配置（排除 deliveries 等工作流输出目录的热重载）
 "%PY%" main.py
 set "EXIT_CODE=!ERRORLEVEL!"
 

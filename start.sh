@@ -43,5 +43,5 @@ echo ""
 # 打开浏览器
 sleep 1 && start "" "http://localhost:8000" 2>/dev/null &
 
-# 启动服务器（使用 main.py 内置的 reload 配置，排除 deliveries 等工作流输出目录）
+# 启动服务器
 python main.py
