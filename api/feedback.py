@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime, timezone
 from typing import Any
+
+UTC = timezone.utc
 
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import select as _sel

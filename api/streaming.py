@@ -5,9 +5,11 @@ from __future__ import annotations
 import asyncio
 import json
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
+from database.db import async_session_factory
+from database.models import Project
 from workflow.sse_bridge import stream_logs, remove_log_queue
 from workflow.stream_relay import stream_ai_tokens
 

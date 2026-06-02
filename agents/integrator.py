@@ -165,7 +165,6 @@ class IntegratorAgent:
 
         blocked_note = ""
         if blocked_modules:
-            blocked_names = ", ".join(m["module_name"] for m in blocked_modules)
             blocked_note = (
                 "\n\n⚠️ 以下模块尚未完成（blocked），仅含占位代码，集成测试请跳过其功能：\n"
                 + "\n".join(f"- **{m['module_name']}**: {m.get('description', '')[:100]}" for m in blocked_modules)

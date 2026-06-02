@@ -274,26 +274,26 @@ class PlannerAgent:
                 if dep in name_to_idx:
                     adj[name_to_idx[dep]].append(i)
 
-        WHITE, GRAY, BLACK = 0, 1, 2
-        color = [WHITE] * len(modules)
+        white, gray, black = 0, 1, 2
+        color = [white] * len(modules)
         path: list[str] = []
 
         def dfs(u: int) -> bool:
-            color[u] = GRAY
+            color[u] = gray
             module_name = modules[u].get("module_name", f"__anon_{u}")
             path.append(module_name)
             for v in adj[u]:
-                if color[v] == GRAY:
+                if color[v] == gray:
                     path.append(modules[v].get("module_name", f"__anon_{v}"))
                     return True
-                if color[v] == WHITE and dfs(v):
+                if color[v] == white and dfs(v):
                     return True
             path.pop()
-            color[u] = BLACK
+            color[u] = black
             return False
 
         for i in range(len(modules)):
-            if color[i] == WHITE and dfs(i):
+            if color[i] == white and dfs(i):
                 return path
         return None
 

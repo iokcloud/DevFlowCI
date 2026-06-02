@@ -55,8 +55,8 @@ async def browse_directory(path: str = "") -> dict[str, Any]:
         ]
         parent = str(p.parent) if p.parent != p else None
         return {"current": str(p), "parent": parent, "entries": entries}
-    except PermissionError:
-        raise HTTPException(403, f"没有权限访问: {path}")
+    except PermissionError as err:
+        raise HTTPException(403, f"没有权限访问: {path}") from err
 
 
 @router.get("/quick-access")

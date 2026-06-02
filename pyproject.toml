@@ -23,6 +23,9 @@ select = [
 ignore = [
     "E501",   # line-length handled by formatter
     "B008",   # FastAPI Depends 中使用函数调用是预期的
+    "E402",   # UTC = timezone.utc 放在 import 间（Python 3.10 兼容）
+    "UP017",  # datetime.UTC 需 Python 3.11+，保持 3.10 兼容
+    "UP042",  # StrEnum 需 Python 3.11+，保持 3.10 兼容
 ]
 
 [tool.ruff.lint.per-file-ignores]

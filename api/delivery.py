@@ -16,6 +16,7 @@ from database.db import async_session_factory
 from database.models import Project, ProjectStatus
 from sqlalchemy import select as _sel
 from workflow.workflow_runner import _running_tasks, _build_business_tech_requirement
+from workflow.sse_bridge import push_log
 from api.models import RollbackRequest
 
 router = APIRouter(prefix="/api/projects", tags=["delivery"])
