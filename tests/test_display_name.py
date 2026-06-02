@@ -8,7 +8,7 @@ from database.models import Project, ProjectStatus
 @pytest.mark.asyncio
 async def test_update_display_name(memory_db):
     from database.db import async_session_factory
-    from main import _default_display_name, update_project_display_name, UpdateDisplayNameRequest
+    from main import UpdateDisplayNameRequest, _default_display_name, update_project_display_name
 
     async with async_session_factory() as db:
         db.add(

@@ -2,10 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
-import pytest
-
 from workflow.iteration_automation import (
     build_auto_iterate_addendum,
     build_checklist_repair_feedback,
@@ -15,6 +11,7 @@ from workflow.iteration_automation import (
     is_stub_code,
     merge_addenda,
     merge_requirements_text,
+    refresh_blocked_failure_reason,
     resolve_blocked_artifacts,
 )
 
@@ -119,3 +116,31 @@ def test_merge_requirements_dedup():
     base = "fastapi>=0.115.0\n"
     merged = merge_requirements_text(base, ["python-docx>=1.1.0", "python-docx>=1.2.0"])
     assert merged.count("python-docx") == 1
+
+
+def test_build_checklist_includes_targeted_hints():
+    fb = build_checklist_repair_feedback(
+        ["静默返回空列表，掩盖文件损坏"],
+        prior_code="def get_trends(p):\n    return []\n" * 5,
+        module_name="report_dashboard",
+    )
+    assert "工作流针对性修复提示" in fb
+    assert "禁止 except Exception" in fb
+
+
+def test_refresh_blocked_failure_reason_strips_stale_truncation():
+    code = (
+        "def get_risks(path: str):\n"
+        "    return []\n"
+        "def get_trends(path: str):\n"
+        "    return []\n"
+    )
+    test = "def test_x():\n    assert True\n"
+    reason = refresh_blocked_failure_reason(
+        code,
+        test,
+        ["代码截断不完整，get_risks 中 logger.warning 未闭合", "缺少后缀校验"],
+        "旧 failure",
+    )
+    assert "截断" not in reason
+    assert "后缀校验" in reason

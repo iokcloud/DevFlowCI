@@ -92,7 +92,9 @@ def build_checklist_repair_feedback(
             test_excerpt = prior_test if len(prior_test) <= tcap else prior_test[:tcap] + "\n# ..."
             lines.append("\n【现有测试代码】\n```python\n" + test_excerpt + "\n```")
 
-    return "\n".join(lines)
+    from workflow.review_repair_hints import augment_review_repair_hints
+
+    return augment_review_repair_hints(items, "\n".join(lines))
 
 
 def build_auto_iterate_addendum(
@@ -284,6 +286,57 @@ def merge_requirements_text(base: str, extra_packages: list[str]) -> str:
             lines.append(pkg)
             existing.add(name)
     return "\n".join(lines) + ("\n" if lines else "")
+
+
+_STALE_FAILURE_MARKERS = (
+    "截断",
+    "未闭合",
+    "syntax",
+    "SyntaxError",
+    "占位",
+    "NotImplementedError",
+    'logger.warning("N',
+    "match 参数未闭合",
+)
+
+
+def refresh_blocked_failure_reason(
+    code: str,
+    test_code: str,
+    review_issues: list[str] | str | None,
+    failure_reason: str = "",
+) -> str:
+    """根据落盘代码刷新 blocked 说明，避免 UI/TODO 展示过期的截断类文案。"""
+    if is_stub_code(code):
+        text = failure_reason.strip()
+        if text:
+            return text
+        items = _normalize_issues(review_issues, failure_reason)
+        return "\n".join(f"  - {x}" for x in items[:8]) if items else "模块未完成（占位）"
+
+    from workflow.code_readiness import assess_module_code
+
+    readiness = assess_module_code(code, test_code or "")
+    items = _normalize_issues(review_issues, failure_reason)
+    if readiness.ready:
+        items = [
+            i
+            for i in items
+            if not any(marker.lower() in i.lower() for marker in _STALE_FAILURE_MARKERS)
+        ]
+
+    if readiness.ready and not items:
+        if (test_code or "").strip():
+            return "审查或单元测试未通过；代码结构已就绪，请继续迭代修复测试/集成"
+        return "审查未通过；代码结构已就绪，请补全测试后继续迭代"
+
+    if items:
+        return "\n".join(f"  - {x}" for x in items[:8])
+
+    if not readiness.ready and readiness.issues:
+        return "\n".join(f"  - {x}" for x in readiness.issues[:8])
+
+    return failure_reason.strip() or "审查或测试未通过"
 
 
 def resolve_blocked_artifacts(

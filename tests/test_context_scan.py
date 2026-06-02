@@ -5,8 +5,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from workflow.executor import (
     _collect_doc_files,
     _doc_priority_score,

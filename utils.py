@@ -16,10 +16,10 @@ from config import (
     DEEPSEEK_BASE_URL,
     DEEPSEEK_MODEL,
     DEEPSEEK_REASONING_EFFORT,
+    LLM_MAX_RETRIES,
     LLM_MAX_TOKENS,
     LLM_TEMPERATURE,
     LLM_TIMEOUT_SECONDS,
-    LLM_MAX_RETRIES,
 )
 
 ThinkingMode = Literal["enabled", "disabled"]

@@ -11,20 +11,18 @@ from __future__ import annotations
 
 import asyncio
 import json
-import traceback
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any, AsyncIterator
+from collections.abc import AsyncIterator
+from datetime import UTC, datetime
+from typing import Any
 
 from config import (
     DEEPSEEK_API_KEY,
     DEEPSEEK_BASE_URL,
     DEEPSEEK_MODEL,
-    LLM_TIMEOUT_SECONDS,
-    LLM_TEMPERATURE,
     LLM_MAX_TOKENS,
+    LLM_TEMPERATURE,
+    LLM_TIMEOUT_SECONDS,
 )
-
 
 # ── 全局流队列（project_id → queue）──
 _stream_queues: dict[str, asyncio.Queue[dict[str, Any]]] = {}
@@ -60,12 +58,12 @@ async def stream_ai_tokens(
             yield entry
             if entry.get("type") == "done":
                 break
-        except asyncio.TimeoutError:
+        except TimeoutError:
             yield {
                 "type": "heartbeat",
                 "agent": "",
                 "content": "",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             }
 
 
@@ -79,7 +77,7 @@ async def push_ai_token(
         project_id: 项目标识
         entry: {"type": "token"|"notification"|"done"|"error", "agent": "...", "content": "...", "timestamp": "..."}
     """
-    entry.setdefault("timestamp", datetime.now(timezone.utc).isoformat())
+    entry.setdefault("timestamp", datetime.now(UTC).isoformat())
     queue = get_stream_queue(project_id)
     try:
         queue.put_nowait(entry)
@@ -152,7 +150,6 @@ async def stream_deepseek_call(
     # ── 尝试流式调用 ──
     try:
         import httpx
-        import aiohttp
 
         api_key = DEEPSEEK_API_KEY
         base_url = DEEPSEEK_BASE_URL.rstrip("/")
@@ -250,7 +247,7 @@ async def stream_deepseek_call(
         await push_ai_token(project_id, {
             "type": "notification",
             "agent": agent_name,
-            "content": f"⚠️ 流式传输不可用，使用普通模式...",
+            "content": "⚠️ 流式传输不可用，使用普通模式...",
         })
 
         try:

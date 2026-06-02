@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import select
 
-from database.models import ErrorLog, ErrorStatus
+from database.models import ErrorLog
 from workflow.error_logger import (
     clean_resolved_logs,
     get_error_stats,
@@ -88,7 +88,7 @@ async def test_clean_resolved_logs(memory_db, tmp_path, monkeypatch):
     async with memory_db() as db:
         result = await db.execute(select(ErrorLog).where(ErrorLog.trace_id == "old-1"))
         row = result.scalar_one()
-        row.created_at = datetime.now(timezone.utc) - timedelta(days=10)
+        row.created_at = datetime.now(UTC) - timedelta(days=10)
         await db.commit()
 
     dry = await clean_resolved_logs(days=7, dry_run=True)

@@ -23,10 +23,9 @@ from __future__ import annotations
 import json
 import os
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-
 
 _ANALYTICS_FILE = Path(__file__).parent / ".analytics.json"
 _ANALYTICS_ENABLED = os.getenv("ANALYTICS_ENABLED", "false").lower() == "true"
@@ -48,7 +47,7 @@ def track(
 
     event: dict[str, Any] = {
         "type": event_type,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
     }
     # 仅保留安全的元数据字段
     safe_keys = {"endpoint", "status", "duration_ms", "feature_name", "error_type", "module"}
@@ -66,7 +65,7 @@ def track(
         if len(data) > 5000:
             data = data[-5000:]
         _ANALYTICS_FILE.write_text(
-            json.dumps({"events": data, "last_updated": datetime.now(timezone.utc).isoformat()}, ensure_ascii=False, indent=2),
+            json.dumps({"events": data, "last_updated": datetime.now(UTC).isoformat()}, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
     except Exception:
@@ -148,7 +147,7 @@ def generate_report() -> dict[str, Any]:
             devflow_suggestion = "无法连接到 DevFlow CI 助手"
 
     return {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "total_events": len(events),
         "by_type": types,
         "top_endpoints": [

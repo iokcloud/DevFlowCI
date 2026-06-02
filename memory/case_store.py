@@ -13,12 +13,11 @@ import math
 import re
 from collections import Counter
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from config import MAX_SUCCESS_CASES, SIMILARITY_TOP_K, SUCCESS_CASES_FILE
-
 
 # ── 数据结构 ──────────────────────────────────────────────
 
@@ -44,7 +43,7 @@ class SuccessCase:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "SuccessCase":
+    def from_dict(cls, d: dict[str, Any]) -> SuccessCase:
         return cls(
             case_id=d["case_id"],
             requirement=d["requirement"],
@@ -180,17 +179,57 @@ class CaseStore:
         self._retriever = TfidfRetriever(self._cases)
 
     def _save(self) -> None:
-        """持久化到 JSON 文件。"""
+        """持久化到 JSON 文件 + SQLite（双写，渐进迁移）。"""
         self._file_path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "version": "1.0.0",
-            "last_updated": datetime.now(timezone.utc).isoformat(),
+            "last_updated": datetime.now(UTC).isoformat(),
             "cases": [c.to_dict() for c in self._cases],
         }
         self._file_path.write_text(
             json.dumps(payload, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+        # SQLite 双写：仅在服务运行时异步同步，测试环境跳过
+        try:
+            import asyncio
+            loop = asyncio.get_running_loop()
+            _ = loop.create_task(self._save_to_db())
+        except (RuntimeError, ImportError):
+            pass
+
+    async def _save_to_db(self) -> None:
+        """将最新案例同步到 SQLite success_cases 表。"""
+        try:
+            from database.db import async_session_factory
+            from database.models import SuccessCase as SuccessCaseModel
+            from sqlalchemy import select as _sel
+
+            async with async_session_factory() as db:
+                for case in self._cases[-10:]:  # 只同步最近 10 条
+                    # 检查是否已存在
+                    import hashlib
+                    h = hashlib.sha256(case.requirement.encode()).hexdigest()[:16]
+                    existing = await db.execute(
+                        _sel(SuccessCaseModel).where(
+                            SuccessCaseModel.requirement_hash == h
+                        )
+                    )
+                    if existing.scalar_one_or_none():
+                        continue
+                    db.add(SuccessCaseModel(
+                        requirement_hash=h,
+                        requirement_preview=case.requirement[:200],
+                        full_requirement=case.requirement[:10000],
+                        plan_json=json.dumps(case.plan, ensure_ascii=False),
+                        result_json=json.dumps(case.modules, ensure_ascii=False),
+                        module_count=len(case.modules),
+                        passed_count=sum(1 for m in case.modules if m.get("status") == "passed"),
+                        blocked_count=sum(1 for m in case.modules if m.get("status") == "blocked"),
+                    ))
+                await db.commit()
+        except Exception:
+            pass
 
     def search_similar(
         self, query: str, top_k: int = SIMILARITY_TOP_K
@@ -263,7 +302,7 @@ class CaseStore:
             requirement=requirement,
             plan=plan,
             modules=modules,
-            created_at=datetime.now(timezone.utc).isoformat(),
+            created_at=datetime.now(UTC).isoformat(),
             keywords=keywords,
         )
 

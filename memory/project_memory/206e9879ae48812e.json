@@ -1,0 +1,46 @@
+{
+  "directory": "C:\\Users\\ava_t\\Desktop\\todo-docs",
+  "directory_hash": "206e9879ae48812e",
+  "last_requirement": "背景：本项目旨在打造一款面向开发者的极简命令行待办事项工具，利用Python 3.10+单文件实现，核心功能包括添加、列表及按序号完成任务。目标用户为习惯终端操作的开发者群体，价值主张在于轻量、离线、零配置，无缝融入开发流程。当前已实现核心模块并通过pytest保证质量。商业模式前期以开源免费策略吸引用户，未来可探索增值服务如团队协作、云同步等。路线图将完善发布流程并迭代用户体验。面临用户获取与功能同质化风险，需通过社区运营和差异化功能应对。。商业计划「阶段1：核心功能完善与发布」技术 MVP（最多 2 个独立 Python 模块）：模块1「集成task_manager与cli_handler模块为单文件命令行入口」；模块2「编写完整的pytest测试用例覆盖异常场景」。每个模块均为 backend 类型：单文件≤120行的纯 Python 函数或类，含 type hints、docstring、pytest；禁止 frontend/微信小程序/ML 训练/SQLite/CLI；模块间松耦合、无依赖优先。",
+  "last_plan": [
+    {
+      "module_name": "todo_cli",
+      "description": "集成任务管理与命令行解析的单文件模块，提供添加、列表、完成任务功能，基于 sys.argv 驱动。",
+      "dependencies": [],
+      "type": "backend"
+    },
+    {
+      "module_name": "test_todo",
+      "description": "对 todo_cli 模块所有功能进行 pytest 测试，覆盖异常场景（无效命令、缺失参数等）。",
+      "dependencies": [
+        "todo_cli"
+      ],
+      "type": "testing"
+    }
+  ],
+  "modules": [
+    {
+      "module_name": "task_manager",
+      "description": "提供任务增删查改的纯函数：add_task（添加任务）、list_tasks（列出所有任务）、complete_task（按序号标记完成）。内部使用列表维护任务，每个任务为字典形式。所有函数包含类型提示、文档字符串，并返回结果。",
+      "status": "passed"
+    },
+    {
+      "module_name": "cli_handler",
+      "description": "解析命令行参数（基于sys.argv），支持 add、list、complete 子命令，调用 task_manager 模块中的对应函数，并打印结果或错误信息。负责用户交互与输入验证。",
+      "status": "passed"
+    },
+    {
+      "module_name": "todo_cli",
+      "description": "集成任务管理与命令行解析的单文件模块，提供添加、列表、完成任务功能，基于 sys.argv 驱动。",
+      "status": "passed"
+    },
+    {
+      "module_name": "test_todo",
+      "description": "对 todo_cli 模块所有功能进行 pytest 测试，覆盖异常场景（无效命令、缺失参数等）。",
+      "status": "passed"
+    }
+  ],
+  "last_modified_module": "test_todo",
+  "last_updated": "2026-06-01T20:38:55.400981+00:00",
+  "total_sessions": 2
+}

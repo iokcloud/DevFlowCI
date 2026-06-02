@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from agents.integrator import GlobalReviewResult, GlobalReviewerAgent, IntegrationResult
+from agents.integrator import GlobalReviewerAgent, GlobalReviewResult, IntegrationResult
 
 
 def test_integration_result_accepts_dict_structure():

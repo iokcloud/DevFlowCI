@@ -1,7 +1,0 @@
-# ⚠️ 指针文件 — 请勿直接编辑
-
-> **权威来源**：`docs/success_cases.json`
->
-> 本文件仅为向后兼容保留。`config.py` 中 `SUCCESS_CASES_FILE` 已指向 `docs/success_cases.json`。
-
-请打开：[docs/success_cases.json](docs/success_cases.json)

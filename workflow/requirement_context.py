@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from datetime import UTC
 from typing import Any
 
 
@@ -81,14 +82,14 @@ def append_requirement_addendum(
 ) -> str:
     """追加一条需求补充并返回 JSON 字符串。"""
     import json
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     entries = parse_requirement_addenda(raw_json)
     entries.append(
         {
             "round": round_num,
             "text": text.strip(),
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
         }
     )
     return json.dumps(entries, ensure_ascii=False)

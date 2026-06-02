@@ -7,13 +7,11 @@ RepairAgent 角色：
 
 from __future__ import annotations
 
-import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from config import LLM_MAX_TOKENS, LLM_TIMEOUT_SECONDS
 from utils import create_llm_json, extract_json
-
 
 # ── 数据结构 ──────────────────────────────────────────────
 

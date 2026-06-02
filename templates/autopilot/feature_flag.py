@@ -23,7 +23,6 @@ import time
 from pathlib import Path
 from typing import Any
 
-
 _FLAGS_FILE = Path(__file__).parent / "feature_flags.json"
 _CACHE: dict[str, dict[str, Any]] = {}
 _CACHE_TIME = 0.0

@@ -8,10 +8,8 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Any
 
 from utils import create_llm_text
-
 
 # ── 数据结构 ──────────────────────────────────────────────
 
@@ -34,6 +32,11 @@ REVIEWER_SYSTEM_PROMPT = """你是一位严格的代码审查员。你的任务�
 3. **安全**：是否存在 SQL 注入、硬编码密钥、路径遍历、未校验输入？
 4. **异常处理**：外部调用是否有 try-except？异常是否正确传播？
 5. **测试**：测试是否覆盖了核心路径和异常路径？
+
+## 解析类模块（docx/md/报告）
+- **合法空结果**（文件正常但无匹配行）return [] 可 PASS
+- **文件损坏/IO 失败** 必须向上 raise；若已实现 RuntimeError/ValueError 传播，勿因「可能静默」误报 FAIL
+- 若代码含 **rank/score 范围校验**（如 1≤rank≤10000）且坏行 skip + warning，安全项可 PASS
 
 ## 输出格式（非常重要！）
 你的审查结论 **必须以 PASS 或 FAIL 开头**，格式严格如下：

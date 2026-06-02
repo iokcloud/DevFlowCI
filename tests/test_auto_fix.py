@@ -8,16 +8,16 @@ from pathlib import Path
 import pytest
 
 from config import ErrorType
+from tests.conftest import write_json_cases
 from workflow.auto_fix import (
     FixContext,
     classify_error,
+    fix,
     format_cases_for_prompt,
     jaccard_similarity,
     record_fix_case,
     search_similar_cases,
-    fix,
 )
-from tests.conftest import write_json_cases
 
 
 class TestClassifyError:

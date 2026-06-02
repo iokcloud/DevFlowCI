@@ -13,11 +13,9 @@
 
 from __future__ import annotations
 
-import json
-import os
 import platform
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 
@@ -58,7 +56,7 @@ def health() -> dict[str, Any]:
     """
     status_data: dict[str, Any] = {
         "status": "healthy",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "version": "{{PROJECT_VERSION}}",
         "python_version": f"{sys.version_info.major}.{sys.version_info.minor}",
         "platform": platform.platform(),

@@ -11,8 +11,10 @@ FastAPI 主入口，提供：
 from __future__ import annotations
 
 import asyncio
+from collections import defaultdict
 import json
 import os
+import time as _time
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -124,6 +126,8 @@ def _register_task(project_id: str, coro) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用启动/关闭时执行。"""
+    from logging_config import configure_logging
+    configure_logging()
     await init_db()
     yield
 
@@ -146,6 +150,23 @@ app.add_middleware(
 
 # 静态文件
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+# ── 速率限制 ──────────────────────────────────────────
+_rate_window = {}
+_RATE_LIMIT = 60
+_RATE_WINDOW = 60
+
+async def _rate_limit_middleware(request, call_next):
+    client = request.client.host if request.client else "unknown"
+    now = _time.time()
+    window = _rate_window.setdefault(client, [])
+    window[:] = [t for t in window if now - t < _RATE_WINDOW]
+    if len(window) >= _RATE_LIMIT:
+        return JSONResponse(status_code=429, content={"detail": "请求过于频繁，请稍后再试", "retry_after": _RATE_WINDOW})
+    window.append(now)
+    return await call_next(request)
+
+app.middleware("http")(_rate_limit_middleware)
 
 
 # ── 请求模型 ──────────────────────────────────────────────

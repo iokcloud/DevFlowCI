@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 from workflow.requirement_context import (
     append_requirement_addendum,
     build_effective_requirement,

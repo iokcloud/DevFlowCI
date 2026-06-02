@@ -13,20 +13,18 @@ import asyncio
 import json
 import re
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from pathlib import Path
+from datetime import UTC, datetime
 from typing import Any
 
 from config import (
-    AUTO_FIX_CASES_FILE,
     AUTO_FIX_CASE_TOP_K,
+    AUTO_FIX_CASES_FILE,
+    AUTO_FIX_RETRY_BACKOFF,
     AUTO_FIX_RETRY_BASE_DELAY,
     AUTO_FIX_RETRY_MAX_DELAY,
-    AUTO_FIX_RETRY_BACKOFF,
     ERROR_FIX_STRATEGY_MAP,
     ErrorType,
 )
-
 
 # ── 错误分类 ──────────────────────────────────────────────
 
@@ -189,7 +187,7 @@ def _save_cases(cases: list[dict[str, Any]]) -> None:
     file_path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "version": "1.0.0",
-        "last_updated": datetime.now(timezone.utc).isoformat(),
+        "last_updated": datetime.now(UTC).isoformat(),
         "cases": cases,
     }
     file_path.write_text(
@@ -268,7 +266,7 @@ def record_fix_case(
         "module_type": module_type,
         "fix_summary": fix_summary,
         "strategy_used": strategy_used,
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
     }
 
     # 保持最大 200 条案例
@@ -342,7 +340,7 @@ class FixContext:
             "strategy": strategy,
             "success": success,
             "detail": detail,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         })
 
 
@@ -508,7 +506,19 @@ async def _try_modify_code(
         f"错误信息：{fix_ctx.error_text[:1000]}\n"
     )
     if fix_ctx.review_issues:
-        feedback += "\n审查指出的问题：\n" + "\n".join(f"- {i}" for i in fix_ctx.review_issues[:5])
+        from workflow.iteration_automation import build_checklist_repair_feedback
+
+        feedback = build_checklist_repair_feedback(
+            fix_ctx.review_issues,
+            prior_code=fix_ctx.code,
+            prior_test=fix_ctx.test_code,
+            failure_reason=fix_ctx.error_text,
+            module_name=fix_ctx.module_name,
+        )
+    elif fix_ctx.error_text:
+        from workflow.review_repair_hints import augment_review_repair_hints
+
+        feedback = augment_review_repair_hints([fix_ctx.error_text], feedback)
 
     try:
         from agents.module_agents import ModuleSpec as _ModuleSpec

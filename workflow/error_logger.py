@@ -9,15 +9,13 @@
 
 from __future__ import annotations
 
-import json
 import logging
-import os
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from config import PROJECT_ROOT, MEMORY_DIR
+from config import PROJECT_ROOT
 
 # ── 日志文件路径 ──────────────────────────────────────────────
 ERROR_LOG_FILE: Path = PROJECT_ROOT / "server.log"
@@ -74,7 +72,7 @@ async def write_error_log(
 
     # ── 2. 写文件日志 ──
     try:
-        timestamp = datetime.now(timezone.utc).isoformat()
+        timestamp = datetime.now(UTC).isoformat()
         log_entry = (
             f"[{timestamp}] [ERROR] [{project_id}]"
             + (f" [{module_name}]" if module_name else "")
@@ -106,9 +104,10 @@ async def resolve_error(
         是否成功标记
     """
     try:
+        from sqlalchemy import update
+
         from database.db import async_session_factory
         from database.models import ErrorLog, ErrorStatus
-        from sqlalchemy import update
 
         async with async_session_factory() as db:
             stmt = (
@@ -153,9 +152,10 @@ async def get_error_stats(
         }
     """
     try:
+        from sqlalchemy import case, func, select
+
         from database.db import async_session_factory
         from database.models import ErrorLog, ErrorStatus
-        from sqlalchemy import case, func, select
 
         async with async_session_factory() as db:
             # 总数统计
@@ -279,9 +279,10 @@ async def get_open_errors(
         错误日志字典列表
     """
     try:
+        from sqlalchemy import select
+
         from database.db import async_session_factory
         from database.models import ErrorLog, ErrorStatus
-        from sqlalchemy import select
 
         async with async_session_factory() as db:
             conditions = [ErrorLog.status == ErrorStatus.OPEN]
@@ -327,11 +328,12 @@ async def clean_resolved_logs(
     Returns:
         {"deleted_count": int, "dry_run": bool}
     """
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    cutoff = datetime.now(UTC) - timedelta(days=days)
     try:
+        from sqlalchemy import delete, func, select
+
         from database.db import async_session_factory
         from database.models import ErrorLog, ErrorStatus
-        from sqlalchemy import delete, select, func
 
         async with async_session_factory() as db:
             # 先统计

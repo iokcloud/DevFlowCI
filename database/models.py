@@ -8,8 +8,7 @@
 from __future__ import annotations
 
 import enum
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 from sqlalchemy import (
     Column,
@@ -23,7 +22,6 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, relationship
 
 from database.db import Base
-
 
 # ── 枚举类型 ──────────────────────────────────────────────
 
@@ -76,33 +74,33 @@ class Project(Base):
         String(64), unique=True, nullable=False, index=True
     )
     requirement: Mapped[str] = Column(Text, nullable=False)
-    display_name: Mapped[Optional[str]] = Column(String(128), nullable=True)
-    directory: Mapped[Optional[str]] = Column(String(512), nullable=True)
+    display_name: Mapped[str | None] = Column(String(128), nullable=True)
+    directory: Mapped[str | None] = Column(String(512), nullable=True)
     status: Mapped[ProjectStatus] = Column(
         Enum(ProjectStatus), nullable=False, default=ProjectStatus.CREATED
     )
-    plan_json: Mapped[Optional[str]] = Column(Text, nullable=True)
-    alignment_json: Mapped[Optional[str]] = Column(Text, nullable=True)  # 需求对齐分析结果 JSON
-    context_scan_json: Mapped[Optional[str]] = Column(Text, nullable=True)  # 目录文档扫描摘要
-    final_report: Mapped[Optional[str]] = Column(Text, nullable=True)
-    delivery_path: Mapped[Optional[str]] = Column(String(512), nullable=True)
-    test_report_path: Mapped[Optional[str]] = Column(String(512), nullable=True)
+    plan_json: Mapped[str | None] = Column(Text, nullable=True)
+    alignment_json: Mapped[str | None] = Column(Text, nullable=True)  # 需求对齐分析结果 JSON
+    context_scan_json: Mapped[str | None] = Column(Text, nullable=True)  # 目录文档扫描摘要
+    final_report: Mapped[str | None] = Column(Text, nullable=True)
+    delivery_path: Mapped[str | None] = Column(String(512), nullable=True)
+    test_report_path: Mapped[str | None] = Column(String(512), nullable=True)
     blocked_count: Mapped[int] = Column(Integer, default=0)
     iteration: Mapped[int] = Column(Integer, default=1)
-    requirement_addendum_json: Mapped[Optional[str]] = Column(Text, nullable=True)
+    requirement_addendum_json: Mapped[str | None] = Column(Text, nullable=True)
 
     created_at: Mapped[datetime] = Column(
-        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
+        DateTime, default=lambda: datetime.now(UTC), nullable=False
     )
     updated_at: Mapped[datetime] = Column(
-        DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False
+        DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False
     )
 
     # 关联
-    modules: Mapped[list["ModuleTask"]] = relationship(
+    modules: Mapped[list[ModuleTask]] = relationship(
         "ModuleTask", back_populates="project", cascade="all, delete-orphan"
     )
-    logs: Mapped[list["ProjectLog"]] = relationship(
+    logs: Mapped[list[ProjectLog]] = relationship(
         "ProjectLog", back_populates="project", cascade="all, delete-orphan"
     )
 
@@ -126,24 +124,24 @@ class ModuleTask(Base):
         Enum(ModuleStatus), nullable=False, default=ModuleStatus.PENDING
     )
     retry_count: Mapped[int] = Column(Integer, default=0)
-    failure_reason: Mapped[Optional[str]] = Column(Text, nullable=True)
+    failure_reason: Mapped[str | None] = Column(Text, nullable=True)
 
-    spec: Mapped[Optional[str]] = Column(Text, nullable=True)
-    code: Mapped[Optional[str]] = Column(Text, nullable=True)
-    tests: Mapped[Optional[str]] = Column(Text, nullable=True)
-    review_result: Mapped[Optional[str]] = Column(Text, nullable=True)
-    auto_fix_history: Mapped[Optional[str]] = Column(Text, nullable=True)  # JSON: [{strategy, success, detail, ...}]
-    test_result: Mapped[Optional[str]] = Column(Text, nullable=True)       # JSON: TestResult.to_dict()
+    spec: Mapped[str | None] = Column(Text, nullable=True)
+    code: Mapped[str | None] = Column(Text, nullable=True)
+    tests: Mapped[str | None] = Column(Text, nullable=True)
+    review_result: Mapped[str | None] = Column(Text, nullable=True)
+    auto_fix_history: Mapped[str | None] = Column(Text, nullable=True)  # JSON: [{strategy, success, detail, ...}]
+    test_result: Mapped[str | None] = Column(Text, nullable=True)       # JSON: TestResult.to_dict()
 
     created_at: Mapped[datetime] = Column(
-        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
+        DateTime, default=lambda: datetime.now(UTC), nullable=False
     )
     updated_at: Mapped[datetime] = Column(
-        DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc), nullable=False
+        DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False
     )
 
     # 关联
-    project: Mapped["Project"] = relationship("Project", back_populates="modules")
+    project: Mapped[Project] = relationship("Project", back_populates="modules")
 
 
 class ProjectLog(Base):
@@ -159,13 +157,13 @@ class ProjectLog(Base):
         String(16), default="INFO"
     )  # INFO, WARN, ERROR, SUCCESS
     message: Mapped[str] = Column(Text, nullable=False)
-    module_name: Mapped[Optional[str]] = Column(String(128), nullable=True)
+    module_name: Mapped[str | None] = Column(String(128), nullable=True)
     timestamp: Mapped[datetime] = Column(
-        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
+        DateTime, default=lambda: datetime.now(UTC), nullable=False
     )
 
     # 关联
-    project: Mapped["Project"] = relationship("Project", back_populates="logs")
+    project: Mapped[Project] = relationship("Project", back_populates="logs")
 
 
 class ErrorLog(Base):
@@ -182,18 +180,18 @@ class ErrorLog(Base):
     trace_id: Mapped[str] = Column(
         String(64), nullable=False, index=True
     )
-    project_id: Mapped[Optional[str]] = Column(
+    project_id: Mapped[str | None] = Column(
         String(64), nullable=True, index=True
     )
-    module_name: Mapped[Optional[str]] = Column(String(128), nullable=True)
-    error_type: Mapped[Optional[str]] = Column(String(64), nullable=True)
+    module_name: Mapped[str | None] = Column(String(128), nullable=True)
+    error_type: Mapped[str | None] = Column(String(64), nullable=True)
     message: Mapped[str] = Column(Text, nullable=False)
-    stacktrace: Mapped[Optional[str]] = Column(Text, nullable=True)
+    stacktrace: Mapped[str | None] = Column(Text, nullable=True)
     status: Mapped[ErrorStatus] = Column(
         Enum(ErrorStatus), nullable=False, default=ErrorStatus.OPEN
     )
     created_at: Mapped[datetime] = Column(
-        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
+        DateTime, default=lambda: datetime.now(UTC), nullable=False
     )
 
 
@@ -214,20 +212,50 @@ class FixSession(Base):
     )
     project_id: Mapped[str] = Column(String(64), nullable=False, index=True)
     module_name: Mapped[str] = Column(String(128), nullable=False, index=True)
-    error_type: Mapped[Optional[str]] = Column(String(64), nullable=True)
-    error_message: Mapped[Optional[str]] = Column(Text, nullable=True)
+    error_type: Mapped[str | None] = Column(String(64), nullable=True)
+    error_message: Mapped[str | None] = Column(Text, nullable=True)
     strategy_used: Mapped[str] = Column(
         String(64), nullable=False, default="unknown"
     )
     round_number: Mapped[int] = Column(Integer, nullable=False, default=1)
     success: Mapped[bool] = Column(Integer, nullable=False, default=0)
-    fix_summary: Mapped[Optional[str]] = Column(Text, nullable=True)
-    code_before: Mapped[Optional[str]] = Column(Text, nullable=True)
-    code_after: Mapped[Optional[str]] = Column(Text, nullable=True)
-    test_result: Mapped[Optional[str]] = Column(Text, nullable=True)
+    fix_summary: Mapped[str | None] = Column(Text, nullable=True)
+    code_before: Mapped[str | None] = Column(Text, nullable=True)
+    code_after: Mapped[str | None] = Column(Text, nullable=True)
+    test_result: Mapped[str | None] = Column(Text, nullable=True)
     loop_count: Mapped[int] = Column(Integer, nullable=False, default=0)
-    resolved_at: Mapped[Optional[datetime]] = Column(DateTime, nullable=True)
+    resolved_at: Mapped[datetime | None] = Column(DateTime, nullable=True)
 
     created_at: Mapped[datetime] = Column(
-        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
+        DateTime, default=lambda: datetime.now(UTC), nullable=False
+    )
+
+
+class SuccessCase(Base):
+    """成功案例 — 替代 docs/success_cases.json 的 SQLite 存储。
+
+    支持按标签、日期、通过率查询，不再需要全量加载到内存。
+    """
+
+    __tablename__ = "success_cases"
+
+    id: Mapped[int] = Column(Integer, primary_key=True, autoincrement=True)
+    requirement_hash: Mapped[str] = Column(
+        String(64), nullable=False, index=True
+    )
+    requirement_preview: Mapped[str] = Column(
+        String(200), nullable=False
+    )
+    full_requirement: Mapped[str] = Column(Text, nullable=False)
+    plan_json: Mapped[str] = Column(Text, nullable=False)
+    result_json: Mapped[str] = Column(Text, nullable=False)
+    tags: Mapped[str] = Column(
+        String(500), default="[]"
+    )  # JSON list: ["api", "web", "python"]
+    module_count: Mapped[int] = Column(Integer, default=0)
+    passed_count: Mapped[int] = Column(Integer, default=0)
+    blocked_count: Mapped[int] = Column(Integer, default=0)
+
+    created_at: Mapped[datetime] = Column(
+        DateTime, default=lambda: datetime.now(UTC), nullable=False
     )

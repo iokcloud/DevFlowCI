@@ -11,18 +11,14 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import re
 import subprocess
 import sys
 import tempfile
-import traceback
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
 from typing import Any
-
 
 # ── 数据结构 ──────────────────────────────────────────────
 
@@ -50,7 +46,12 @@ class TestResult:
 
     @property
     def all_passed(self) -> bool:
-        return self.failed == 0 and self.errors == 0 and self.total > 0
+        return (
+            self.total > 0
+            and self.passed == self.total
+            and self.failed == 0
+            and self.errors == 0
+        )
 
     @property
     def has_results(self) -> bool:
@@ -64,6 +65,7 @@ class TestResult:
             "errors": self.errors,
             "summary": self.summary,
             "execution_mode": self.execution_mode,
+            "execution_output": self.execution_output[:2000],
             "cases": [
                 {
                     "name": c.name,
@@ -105,7 +107,7 @@ def _check_syntax(code: str, file_name: str = "test_module.py") -> TestResult:
         compile(code, file_name, "exec")
         result.total = 1
         result.passed = 1
-        result.summary = f"语法检查通过 (降级方案，未实际运行)"
+        result.summary = "语法检查通过 (降级方案，未实际运行)"
         result.cases.append(TestCaseResult(name="syntax_check", passed=True))
     except SyntaxError as exc:
         result.total = 1
@@ -122,6 +124,71 @@ def _extract_test_case_names(code: str) -> list[str]:
     """从测试代码中提取测试函数名。"""
     pattern = re.compile(r"def\s+(test_\w+)\s*\(", re.MULTILINE)
     return [m.group(1) for m in pattern.finditer(code)]
+
+
+def _extract_pytest_error_excerpt(output_text: str, limit: int = 800) -> str:
+    """从 pytest 输出中提取最有用的错误片段。"""
+    if not output_text:
+        return ""
+    markers = (
+        "ModuleNotFoundError:",
+        "ImportError:",
+        "SyntaxError:",
+        "ERROR collecting",
+        "FAILED ",
+        "AssertionError:",
+        "E   ",
+    )
+    lines = output_text.splitlines()
+    for i, line in enumerate(lines):
+        if any(m in line for m in markers):
+            return "\n".join(lines[i: i + 12]).strip()[:limit]
+    return output_text.strip()[:limit]
+
+
+def _build_failure_summary(output_text: str, returncode: int | None = None) -> str:
+    excerpt = _extract_pytest_error_excerpt(output_text)
+    if excerpt:
+        rc = f"（exit={returncode}）" if returncode not in (None, 0) else ""
+        return f"pytest 执行失败{rc}：\n{excerpt}"
+    if output_text.strip():
+        return f"pytest 执行失败：\n{output_text.strip()[:800]}"
+    return (
+        "pytest 无输出（可能测试文件无 def test_ 函数、依赖缺失或沙箱启动失败）"
+    )
+
+
+def format_test_failure_feedback(result: TestResult | dict[str, Any] | None) -> str:
+    """将测试结果格式化为编码 Agent 可理解的修复反馈。"""
+    if not result:
+        return "单元测试未通过（无结果）"
+    if isinstance(result, TestResult):
+        data = result.to_dict()
+        output = result.execution_output
+    else:
+        data = result
+        output = data.get("execution_output") or ""
+
+    parts: list[str] = []
+    summary = (data.get("summary") or "").strip()
+    if summary and not summary.startswith("✅"):
+        parts.append(summary)
+
+    for case in data.get("cases") or []:
+        if case.get("passed"):
+            continue
+        name = case.get("name") or "unknown"
+        err = (case.get("error_message") or "").strip()
+        parts.append(f"失败用例 {name}: {err or '见 pytest 输出'}")
+
+    if output.strip():
+        excerpt = _extract_pytest_error_excerpt(output, limit=1200)
+        if excerpt and excerpt not in "\n".join(parts):
+            parts.append(excerpt)
+
+    if not parts:
+        return summary or "单元测试未通过（无详细输出，请检查 import 与 def test_ 命名）"
+    return "\n".join(parts)
 
 
 def _parse_pytest_output(output_text: str, known_tests: list[str]) -> TestResult:
@@ -150,23 +217,56 @@ def _parse_pytest_output(output_text: str, known_tests: list[str]) -> TestResult
         # Fallback: 尝试其他格式
         passed_m = re.search(r"(\d+)\s+passed", output_text, re.IGNORECASE)
         failed_m = re.search(r"(\d+)\s+failed", output_text, re.IGNORECASE)
-        if passed_m or failed_m:
+        error_m = re.search(r"(\d+)\s+errors?\b", output_text, re.IGNORECASE)
+        error_in_m = re.search(r"(\d+)\s+error(?:s)?\s+in\s+", output_text, re.IGNORECASE)
+        coll_err_m = re.search(
+            r"collected\s+\d+\s+items\s*/\s*(\d+)\s+error",
+            output_text,
+            re.IGNORECASE,
+        )
+        if passed_m or failed_m or error_m or error_in_m or coll_err_m:
             result.passed = int(passed_m.group(1)) if passed_m else 0
             result.failed = int(failed_m.group(1)) if failed_m else 0
-            result.total = result.passed + result.failed
+            if error_m:
+                result.errors = int(error_m.group(1))
+            elif error_in_m:
+                result.errors = int(error_in_m.group(1))
+            elif coll_err_m:
+                result.errors = int(coll_err_m.group(1))
+            result.total = result.passed + result.failed + result.errors
+
+    # 收集阶段失败但未解析到 errors
+    if result.errors == 0 and (
+        "ERROR collecting" in output_text
+        or "Interrupted:" in output_text
+        or "!!!" in output_text and "error" in output_text.lower()
+    ):
+        result.errors = max(result.errors, 1)
+        if result.total == 0:
+            result.total = result.errors
 
     # 提取失败用例
-    if result.failed > 0:
-        # 查找 FAILED 行
+    if result.failed > 0 or result.errors > 0:
         for match in re.finditer(r"FAILED\s+(.+?)(?:\n|$)", output_text):
             case_name = match.group(1).strip()
-            # 提取错误信息（FAILED 行之后的几行）
             pos = match.end()
             next_lines = output_text[pos:pos + 300]
             error_line = next_lines.split("\n")[0].strip()
             result.cases.append(TestCaseResult(
                 name=case_name, passed=False,
                 error_message=error_line[:200],
+            ))
+        if not result.cases and result.errors > 0:
+            err_m = re.search(
+                r"ERROR collecting\s+(\S+)",
+                output_text,
+                re.IGNORECASE,
+            )
+            name = err_m.group(1) if err_m else "collection"
+            result.cases.append(TestCaseResult(
+                name=name,
+                passed=False,
+                error_message=_extract_pytest_error_excerpt(output_text, 200),
             ))
 
     # 提取通过用例
@@ -175,21 +275,52 @@ def _parse_pytest_output(output_text: str, known_tests: list[str]) -> TestResult
             name=match.group(1).strip(), passed=True,
         ))
 
-    # 如果 total 仍为 0，尝试统计
+    # 如果 total 仍为 0，尝试统计（勿用 known_tests 伪造通过）
     if result.total == 0:
-        result.total = result.passed + result.failed
-        if result.total == 0 and known_tests:
+        result.total = result.passed + result.failed + result.errors
+        if result.total == 0 and known_tests and "collected 0 items" not in output_text:
             result.total = len(known_tests)
 
     # 构建摘要
     if result.all_passed:
         result.summary = f"✅ 全部 {result.passed}/{result.total} 通过"
     elif result.total > 0:
-        result.summary = f"{result.passed} 通过, {result.failed} 失败, {result.errors} 错误 (共 {result.total})"
+        result.summary = (
+            f"{result.passed} 通过, {result.failed} 失败, {result.errors} 错误 (共 {result.total})"
+        )
+        if result.passed == 0 and (result.failed or result.errors):
+            excerpt = _extract_pytest_error_excerpt(output_text, 400)
+            if excerpt:
+                result.summary += f"\n{excerpt}"
     else:
-        result.summary = f"测试未产生有效结果\n{output_text[:500]}"
+        result.summary = _build_failure_summary(output_text)
 
     return result
+
+
+async def _install_sandbox_deps(sandbox: Path, module_code: str, test_code: str) -> None:
+    """按模块/测试 import 推断并安装缺失依赖到沙箱。"""
+    from workflow.iteration_automation import infer_extra_requirements
+
+    packages = infer_extra_requirements("", f"{module_code}\n{test_code}")
+    if not packages:
+        return
+    req_file = sandbox / "requirements.txt"
+    req_file.write_text("\n".join(packages) + "\n", encoding="utf-8")
+    try:
+        proc = await asyncio.wait_for(
+            asyncio.create_subprocess_exec(
+                sys.executable, "-m", "pip", "install",
+                "-r", str(req_file),
+                "--quiet", "--target", str(sandbox / ".deps"),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            ),
+            timeout=60,
+        )
+        await proc.communicate()
+    except Exception:
+        pass
 
 
 # ── 核心执行函数 ──────────────────────────────────────────
@@ -229,7 +360,7 @@ async def run_module_tests(
 
     # 检查 pytest 是否可用
     if not _is_pytest_available():
-        await _log("WARN", f"[测试执行] pytest 不可用，降级为语法检查")
+        await _log("WARN", "[测试执行] pytest 不可用，降级为语法检查")
         return _check_syntax(test_code, f"test_{module_name}.py")
 
     # 创建沙箱目录
@@ -248,6 +379,13 @@ async def run_module_tests(
     if not conftest.exists():
         conftest.touch()
 
+    await _install_sandbox_deps(sandbox, module_code, test_code)
+
+    deps_dir = sandbox / ".deps"
+    pythonpath = str(sandbox)
+    if deps_dir.is_dir():
+        pythonpath = f"{deps_dir}{os.pathsep}{pythonpath}"
+
     await _log("INFO", f"[测试执行] 运行 pytest: {test_file.name}")
 
     try:
@@ -259,31 +397,42 @@ async def run_module_tests(
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
                 cwd=str(sandbox),
-                env={**os.environ, "PYTHONPATH": str(sandbox), "PYTHONIOENCODING": "utf-8"},
+                env={
+                    **os.environ,
+                    "PYTHONPATH": pythonpath,
+                    "PYTHONIOENCODING": "utf-8",
+                },
             ),
             timeout=timeout,
         )
 
         stdout_bytes, _ = await proc.communicate()
         output_text = stdout_bytes.decode("utf-8", errors="replace")
+        returncode = proc.returncode
 
         known_tests = _extract_test_case_names(test_code)
         result = _parse_pytest_output(output_text, known_tests)
 
+        if returncode != 0 and not result.all_passed:
+            if result.errors == 0 and result.failed == 0:
+                result.errors = 1
+                result.total = max(result.total, 1)
+            if result.summary.startswith("✅") or not result.summary.strip():
+                result.summary = _build_failure_summary(output_text, returncode)
+
         if not result.has_results:
-            # pytest 可能因为导入错误等原因根本没有运行测试
             result.execution_mode = "pytest"
-            result.total = len(known_tests) or 1
-            result.failed = result.total
-            result.summary = f"测试执行异常: {output_text[:500]}"
+            result.total = max(result.total, len(known_tests) or 1)
+            result.failed = max(result.failed, 1)
+            result.summary = _build_failure_summary(output_text, returncode)
             result.execution_output = output_text[:3000]
 
         await _log(
             "SUCCESS" if result.all_passed else "WARN",
-            f"[测试执行] {result.summary}",
+            f"[测试执行] {result.summary.splitlines()[0][:200]}",
         )
 
-    except asyncio.TimeoutError:
+    except TimeoutError:
         await _log("ERROR", f"[测试执行] 超时 ({timeout}s)")
         result = TestResult(
             execution_mode="pytest",
@@ -398,7 +547,7 @@ async def run_integration_tests(
         await _log("SUCCESS" if result.all_passed else "WARN", f"[集成测试] {result.summary}")
         return result
 
-    except asyncio.TimeoutError:
+    except TimeoutError:
         await _log("ERROR", f"[集成测试] 超时 ({timeout}s)")
         return TestResult(
             execution_mode="pytest", total=1, failed=1,
@@ -498,7 +647,7 @@ async def run_full_test_suite(
         )
         return result
 
-    except asyncio.TimeoutError:
+    except TimeoutError:
         await _log("ERROR", f"[全量测试] 超时 ({timeout}s)")
         return TestResult(
             execution_mode="pytest", total=len(test_files), failed=len(test_files),

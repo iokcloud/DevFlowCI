@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +21,7 @@ from workflow.requirement_context import (
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def project_docs_dir(project_id: str) -> Path:
@@ -668,7 +668,7 @@ def maybe_append_platform_learning(
         "",
         f"### 教训 #{num:03d}：交付项目 {ctx.project_id} — {title_suffix}",
         "",
-        f"- **日期**：{datetime.now(timezone.utc).strftime('%Y-%m-%d')}",
+        f"- **日期**：{datetime.now(UTC).strftime('%Y-%m-%d')}",
         f"- **来源**：DevFlow 自动文档同步 ({trigger})",
         "- **类别**：协作流程",
         f"- **现象**：{'；'.join(phenomena) if phenomena else '项目完成定稿'}",

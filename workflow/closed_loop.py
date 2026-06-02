@@ -11,20 +11,16 @@ from __future__ import annotations
 
 import asyncio
 import json
-import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any, Callable, Awaitable
+from datetime import UTC, datetime
+from typing import Any
 
 from config import (
-    AUTO_FIX_ENABLED,
     AUTO_FIX_MAX_TOTAL_ROUNDS,
     AUTO_FIX_QUICK_REVIEW_MAX,
-    ERROR_FIX_STRATEGY_MAP,
-    ErrorType,
 )
-from workflow.auto_fix import classify_error, search_similar_cases, record_fix_case
-
+from workflow.auto_fix import classify_error, record_fix_case, search_similar_cases
 
 # ── 数据结构 ──────────────────────────────────────────────
 
@@ -72,9 +68,10 @@ async def query_fix_history(
     }
 
     try:
-        from database.db import async_session_factory
-        from database.models import ErrorLog, FixSession, ErrorStatus
         from sqlalchemy import select
+
+        from database.db import async_session_factory
+        from database.models import ErrorLog, ErrorStatus, FixSession
 
         async with async_session_factory() as db:
             # 1. 查询 open 状态的过往错误
@@ -180,9 +177,10 @@ async def record_fix_attempt(
         数据库记录 ID，写入失败返回 None
     """
     try:
+        from sqlalchemy import select as _sel
+
         from database.db import async_session_factory
         from database.models import FixSession, Project
-        from sqlalchemy import select as _sel
 
         async with async_session_factory() as db:
             proj = await db.execute(
@@ -206,7 +204,7 @@ async def record_fix_attempt(
                 code_after=code_after[:4000] if code_after else None,
                 test_result=test_result[:2000] if test_result else None,
                 loop_count=loop_count,
-                resolved_at=datetime.now(timezone.utc) if success else None,
+                resolved_at=datetime.now(UTC) if success else None,
             )
             db.add(session)
             await db.commit()
@@ -227,9 +225,10 @@ async def cleanup_after_fix(
     stats = {"resolved_count": 0, "cleaned_files": 0}
 
     try:
+        from sqlalchemy import select
+
         from database.db import async_session_factory
         from database.models import ErrorLog, ErrorStatus
-        from sqlalchemy import select
 
         async with async_session_factory() as db:
             # 查找所有 open 状态的错误
@@ -252,15 +251,13 @@ async def cleanup_after_fix(
 
     # 同时更新 auto_fix_cases.json（如果存在）
     try:
-        from workflow.auto_fix import search_similar_cases
-        import os
 
         # 清理过期的修复案例文件（超过30天的标记为 archived）
         from config import AUTO_FIX_CASES_FILE
         if AUTO_FIX_CASES_FILE.exists():
             data = json.loads(AUTO_FIX_CASES_FILE.read_text(encoding="utf-8"))
             cases = data.get("cases", [])
-            cutoff = datetime.now(timezone.utc).timestamp() - 30 * 86400
+            cutoff = datetime.now(UTC).timestamp() - 30 * 86400
             active_cases = []
             archived_count = 0
             for case in cases:
@@ -423,7 +420,7 @@ async def closed_loop_repair(
             "strategy": strategy,
             "success": False,
             "detail": "",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         }
 
         try:
@@ -459,7 +456,7 @@ async def closed_loop_repair(
 
                     if test_ok:
                         fix_entry["success"] = True
-                        fix_entry["detail"] = f"退避重试成功，审查通过+测试通过"
+                        fix_entry["detail"] = "退避重试成功，审查通过+测试通过"
                         fix_history.append(fix_entry)
                         await record_fix_attempt(
                             project_id, module_name, error_type.value, failure_reason,
@@ -479,7 +476,7 @@ async def closed_loop_repair(
                         fix_entry["detail"] = "审查通过但测试验证失败"
                         feedback = f"测试验证失败，请修复：\n{review_result.summary if hasattr(review_result, 'summary') else ''}"
 
-                feedback = f"审查反馈：\n" + "\n".join(f"  - {i}" for i in (review_result.issues if hasattr(review_result, 'issues') else review_result.get('issues', [])))
+                feedback = "审查反馈：\n" + "\n".join(f"  - {i}" for i in (review_result.issues if hasattr(review_result, 'issues') else review_result.get('issues', [])))
 
             elif strategy == "modify_code":
                 await push_log(project_id, "INFO", f"[闭环修复·修改代码][{module_name}] 注入审查反馈...", module_name=module_name)
@@ -516,7 +513,7 @@ async def closed_loop_repair(
                             await _resolve_and_cleanup(project_id, module_name, push_log)
                             return ClosedLoopResult(
                                 success=True, module_name=module_name,
-                                fix_summary=f"修改代码+审查通过", total_rounds=total_rounds,
+                                fix_summary="修改代码+审查通过", total_rounds=total_rounds,
                                 strategy_used=strategy, code=code, test_code=test_code,
                                 fix_history=fix_history,
                             )

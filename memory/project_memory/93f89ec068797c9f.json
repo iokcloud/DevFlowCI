@@ -1,0 +1,33 @@
+{
+  "directory": "C:\\Users\\ava_t\\Desktop\\AiEDU",
+  "directory_hash": "93f89ec068797c9f",
+  "last_requirement": "背景：基于小红书教案课件领域高互动数据（单话题点赞超6.3万），小学语文为最大细分市场，AI备课与效率工具需求旺盛。本产品定位为“AI内容创作+市场洞察”一体化工具箱，集成文本润色、小红书文案生成、课堂摘要等已有AI提示模板，并嵌入《热门话题分析》与《交易数据分析》报告的核心洞察。目标用户为小学语文教师及教育内容创作者，帮助他们低成本产出合规引流内容，规避交易避雷区，实现知识变现。初期通过免费工具体验获客，后续探索订阅、报告付费或交易导流等模式。据头部卖家数据，年收入可达19-64万元，验证了市场付费潜力。产品将优先完善市场分析数据面板，实现报告动态化，并开发轻量UI，降低使用门槛。。商业计划「第一阶段：核心工具完善与数据面板MVP」技术 MVP：开发市场分析数据面板，将《热门话题分析报告》和《交易数据分析》动态化。里程碑：数据面板展示实时话题热度与避雷提示。请实现为一个可运行的 Python 模块（含 type hints、docstring、pytest 单元测试）。仅一个模块，不要拆分。范围：单文件≤120行，只实现上述第一项核心能力，禁止 SQLite/CLI/多子系统。\n\n【第 3 轮补充】\n【工作流自动生成 · 第 3 轮迭代】\n仅补跑模块 `report_dashboard`，禁止修改其他已通过模块与 main.py 路由结构。\n模块目标：解析《热搜话题分析》docx与《交易数据分析》md报告，提取实时话题热度排名与避雷提示，对外暴露get_trends()与get_risks()接口。\n必须实现并导出可调用 API（如 get_trends / get_risks），禁止 NotImplementedError 占位。\n审查待修复项：\n  - get_risks 函数 docstring 未完整闭合，缺少 Raises 部分说明（质量）\n  - get_risks 缺少文件后缀校验，与 get_trends 不一致（功能）\n  - 测试文件 test_get_trends_empty_docx 函数体不完整，doc.add_paragraph 未调用（测试）\n\n样例数据（工作流已尝试自动生成，请基于 fixtures/ 解析）：\n  - fixtures/热搜话题分析.docx\n  - fixtures/交易数据分析.md\n单文件优先，保持与现有测试风格一致；补全 pytest（含空 docx 等边界用例）。\n\n【第 4 轮补充】\n【第 4 轮 · 窄 scope 修复 report_dashboard】\n\n背景：当前实现与 pytest 已在本地 8/8 通过。请在**现有 report_dashboard.py / 测试文件基础上增量修改**，禁止整文件重写、禁止 NotImplementedError 占位。\n\n仅处理下列审查项（其它已通过逻辑不要删改）：\n1. 对外契约：`get_trends()` / `get_risks()` 明确返回 `list[dict]`（元素字段见现有 `to_dict()`），在模块 docstring 写清；若保留 `Trend`/`Risk` 类，注明为内部解析用，**不要求** API 返回模型实例。\n2. 测试：确认已有 `test_get_risks_*` 与 `test_get_trends_empty_docx`（含 `doc.add_paragraph` 或空 docx 边界）；**不要**删减已有 8 个用例。\n3. 质量：`get_risks` 与 `get_trends` 保持一致的 `.md` / `.docx` 后缀校验与 Raises 文档。\n4. 行数：单文件仍 ≤120 行；若超长，**删注释/合并重复逻辑**，不要砍功能。\n\n禁止：修改 llm_client、prompt_service、main.py 路由；不要新增 SQLite/CLI。\n\nfixtures：继续使用 `fixtures/热搜话题分析.docx` 与 `fixtures/交易数据分析.md`。\n\n---\n\n【工作流自动生成 · 第 4 轮迭代】\n仅补跑模块 `report_dashboard`，禁止修改其他已通过模块与 main.py 路由结构。\n模块目标：解析《热搜话题分析》docx与《交易数据分析》md报告，提取实时话题热度排名与避雷提示，对外暴露get_trends()与get_risks()接口。\n必须实现并导出可调用 API（如 get_trends / get_risks），禁止 NotImplementedError 占位。\n审查待修复项：\n  - get_risks 函数体不完整，代码在 `try` 处截断，功能未实现（功能）\n  - test_get_trends_empty_docx 测试函数体不完整，`ass` 后缺少断言（测试）\n  - 缺少对 get_risks 的测试用例（测试）\n  - Trend 和 Risk 类定义了但未在模块接口中使用，get_trends 返回字典而非 Trend 对象（功能）\n\n样例数据（工作流已尝试自动生成，请基于 fixtures/ 解析）：\n  - fixtures/热搜话题分析.docx\n  - fixtures/交易数据分析.md\n单文件优先，保持与现有测试风格一致；补全 pytest（含空 docx 等边界用例）。\n\n【第 5 轮补充】\n【工作流自动生成 · 第 5 轮迭代】\n仅补跑模块 `report_dashboard`，禁止修改其他已通过模块与 main.py 路由结构。\n模块目标：解析《热搜话题分析》docx与《交易数据分析》md报告，提取实时话题热度排名与避雷提示，对外暴露get_trends()与get_risks()接口。\n必须实现并导出可调用 API（如 get_trends / get_risks），禁止 NotImplementedError 占位。\n审查待修复项：\n  - 代码截断不完整，get_risks 函数中 logger.warning(\"N 未闭合，导致语法错误（功能）\n  - 测试代码截断不完整，test_get_risks_invalid_extension 函数中 pytest.raises 的 match 参数未闭合（测试）\n  - get_risks 中正则表达式使用 re.MULTILINE 但 pattern 以 ^ 开头且未处理行首空格与破折号之间的空白，可能无法匹配示例格式（功能）\n  - 缺少对空文件/无匹配内容时返回空列表的测试用例（测试）\n\n样例数据（工作流已尝试自动生成，请基于 fixtures/ 解析）：\n  - fixtures/热搜话题分析.docx\n  - fixtures/交易数据分析.md\n单文件优先，保持与现有测试风格一致；补全 pytest（含空 docx 等边界用例）。\n\n【第 6 轮补充】\n【工作流自动生成 · 第 6 轮迭代】\n仅补跑模块 `report_dashboard`，禁止修改其他已通过模块与 main.py 路由结构。\n模块目标：解析《热搜话题分析》docx与《交易数据分析》md报告，提取实时话题热度排名与避雷提示，对外暴露get_trends()与get_risks()接口。\n必须实现并导出可调用 API（如 get_trends / get_risks），禁止 NotImplementedError 占位。\n审查待修复项：\n  - `get_trends` 和 `get_risks` 在捕获 `Exception` 后静默返回空列表，掩盖了文件损坏等严重错误，调用方无法感知解析失败（异常处理）\n  - 缺少对 `popularity` 和 `rank` 数值范围的校验，恶意或异常输入可能产生负数或超大值（安全）\n\n样例数据（工作流已尝试自动生成，请基于 fixtures/ 解析）：\n  - fixtures/热搜话题分析.docx\n  - fixtures/交易数据分析.md\n单文件优先，保持与现有测试风格一致；补全 pytest（含空 docx 等边界用例）。\n\n【第 7 轮补充】\n【工作流自动生成 · 第 7 轮迭代】\n仅补跑模块 `report_dashboard`，禁止修改其他已通过模块与 main.py 路由结构。\n模块目标：解析《热搜话题分析》docx与《交易数据分析》md报告，提取实时话题热度排名与避雷提示，对外暴露get_trends()与get_risks()接口。\n必须实现并导出可调用 API（如 get_trends / get_risks），禁止 NotImplementedError 占位。\n审查待修复项：\n  - 模块缺少对外暴露的 `get_trends()` 和 `get_risks()` 接口函数定义\n  - `_parse_risks_md` 中变量名拼写错误 `descrip` 应为 `description`\n\n样例数据（工作流已尝试自动生成，请基于 fixtures/ 解析）：\n  - fixtures/热搜话题分析.docx\n  - fixtures/交易数据分析.md\n单文件优先，保持与现有测试风格一致；补全 pytest（含空 docx 等边界用例）。\n\n【第 8 轮补充】\n【工作流自动生成 · 第 8 轮迭代】\n仅补跑模块 `report_dashboard`，禁止修改其他已通过模块与 main.py 路由结构。\n模块目标：解析《热搜话题分析》docx与《交易数据分析》md报告，提取实时话题热度排名与避雷提示，对外暴露get_trends()与get_risks()接口。\n必须实现并导出可调用 API（如 get_trends / get_risks），禁止 NotImplementedError 占位。\n审查待修复项：\n  - 测试执行异常:\n\n样例数据（工作流已尝试自动生成，请基于 fixtures/ 解析）：\n  - fixtures/热搜话题分析.docx\n  - fixtures/交易数据分析.md\n单文件优先，保持与现有测试风格一致；补全 pytest（含空 docx 等边界用例）。",
+  "last_plan": [
+    {
+      "module_name": "report_dashboard",
+      "description": "解析《热搜话题分析》docx与《交易数据分析》md报告，提取实时话题热度排名与避雷提示，对外暴露get_trends()与get_risks()接口。",
+      "dependencies": [],
+      "type": "backend"
+    }
+  ],
+  "modules": [
+    {
+      "module_name": "llm_client",
+      "description": "封装大模型API调用，支持OpenAI兼容接口，提供统一的重试、超时、错误处理，返回结构化响应（文本内容、token用量等）。纯Python类，无外部依赖。",
+      "status": "passed"
+    },
+    {
+      "module_name": "prompt_service",
+      "description": "加载项目已有的三个提示模板（润色、小红书种草文案、课堂摘要），接收用户输入与场景参数，组装完整prompt，调用llm_client生成内容，并执行基础输出格式校验（字数限制、必要emoji/标签检查）。",
+      "status": "passed"
+    },
+    {
+      "module_name": "report_dashboard",
+      "description": "解析《热搜话题分析》docx与《交易数据分析》md报告，提取实时话题热度排名与避雷提示，对外暴露get_trends()与get_risks()接口。",
+      "status": "blocked"
+    }
+  ],
+  "last_modified_module": "report_dashboard",
+  "last_updated": "2026-06-02T11:06:53.634336+00:00",
+  "total_sessions": 9
+}

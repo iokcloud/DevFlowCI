@@ -68,7 +68,7 @@ async def _confirm_once(
         return
 
     if status == "aligned":
-        print(f"  → 自动确认需求对齐 (confirm_plan)...")
+        print("  → 自动确认需求对齐 (confirm_plan)...")
         resp = await client.post(
             f"{BASE}/api/projects/{pid}/confirm_plan",
             json={"plan_choice": "A"},
@@ -80,7 +80,7 @@ async def _confirm_once(
             print(f"     ⚠️ HTTP {resp.status_code}: {resp.text[:200]}")
 
     elif status == "plan_ready":
-        print(f"  → 自动确认执行规划 (confirm_plan)...")
+        print("  → 自动确认执行规划 (confirm_plan)...")
         resp = await client.post(
             f"{BASE}/api/projects/{pid}/confirm_plan",
             json={},
@@ -181,9 +181,7 @@ async def main() -> int:
                 hint = ""
                 if status in ("aligning", "planning", "executing", "integrating", "reviewing"):
                     hint = "（LLM 调用中，单模块最长约 10 分钟）"
-                elif status == "aligned" and f"{pid}:aligned" not in confirmed:
-                    hint = "（等待 confirm_plan）"
-                elif status == "plan_ready" and f"{pid}:plan_ready" not in confirmed:
+                elif status == "aligned" and f"{pid}:aligned" not in confirmed or status == "plan_ready" and f"{pid}:plan_ready" not in confirmed:
                     hint = "（等待 confirm_plan）"
                 print(
                     f"  [{elapsed:4d}s] ⏳ 心跳 | 状态={status} | "

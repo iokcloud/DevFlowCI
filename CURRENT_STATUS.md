@@ -4,68 +4,22 @@
 > 更新原因：P0/P1 迭代与文档同步落地；新增 HANDOFF / session_checkpoint 衔接新 Chat
 
 <!-- AUTO-CHECKPOINT:START -->
-> **自动 checkpoint** — 2026-06-02 07:57:09 · 会话 `20260602-01` · 分支 `master` · 工作区 **有未提交改动**
+> **自动 checkpoint** — 2026-06-02 08:19:55 · 会话 `20260602-01` · 分支 `master` · 工作区 **有未提交改动**
 
-**下一 Chat 目标（建议）**：按需 commit 或 iterate 验证
+**下一 Chat 目标（建议）**：restart server and iterate blocked project
 
 **快速入口**：`HANDOFF.md` · `sessions/20260602-01/checkpoint.md` · `sessions/20260602-01/summary.md`
 
 **Git 摘要**：
 ```
+779c0ab feat(iteration): 迭代 API、文档同步 P0/P1 与会话 checkpoint
 ab8662f feat(ux): 操作建议条、历史回顾分流与同目录智能跳转
 24f31e7 release v0.4.9: 全 Pro 对齐 + 历史删除 + 资料目录扫描
-6d944cb docs: release v0.4.8 — 分 Agent + SSE snapshot + 全 Pro 默认
 ```
 
 **未提交**：
 ```
-M CURRENT_STATUS.md
- M agents/alignment_agent.py
- M agents/business_planner.py
- M agents/integrator.py
- M database/db.py
- M database/models.py
- M docs/API.md
- M docs/MEMORY_INDEX.md
- M docs/decisions.md
- M docs/success_cases.json
- M main.py
- M scripts/session_start.bat
- M scripts/stop_server.bat
- M start.bat
- M static/app.js
- M static/index.html
- M static/style.css
- M static/ux-polish.css
- M static/ux-states.js
- M tests/test_executor.py
- M tests/test_integrator.py
- M tests/test_learnings_cluster.py
- M tests/test_project_delete.py
- M workflow/closed_loop.py
- M workflow/executor.py
- M workflow/project_snapshot.py
-?? .cursor/
-?? docs/templates/
 ?? memory/project_memory/
-?? scripts/gen_favicon.py
-?? scripts/session_checkpoint.bat
-?? scripts/session_checkpoint.py
-?? scripts/stop_server.ps1
-?? static/favicon.ico
-?? tests/test_closed_loop_review_callback.py
-?? tests/test_delivery_paths.py
-?? tests/test_delivery_suggestions.py
-?? tests/test_display_name.py
-?? tests/test_document_sync.py
-?? tests/test_iteration.py
-?? tests/test_requirement_context.py
-?? workflow/delivery_paths.py
-?? workflow/delivery_suggestions.py
-?? workflow/document_sync.py
-?? workflow/project_cleanup.py
-?? workflow/requirement_context.py
-?? workflow/state_builder.py
 ```
 <!-- AUTO-CHECKPOINT:END -->
 

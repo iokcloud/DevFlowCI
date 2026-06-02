@@ -23,13 +23,11 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import traceback
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-
 
 # ── 错误分类 ─────────────────────────────────────────
 _ERROR_PATTERNS: dict[str, str] = {
@@ -208,7 +206,7 @@ class SelfHealingEngine:
                 "success": True,
                 "strategy": "local_case",
                 "fix_description": local_fix.get("fix_description", ""),
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
             })
             return HealingResult(
                 True, error_text, error_type, "local_case",
@@ -225,7 +223,7 @@ class SelfHealingEngine:
                     "success": True,
                     "strategy": "llm_api",
                     "fix_description": llm_fix,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                 })
                 return HealingResult(
                     True, error_text, error_type, "llm_api",

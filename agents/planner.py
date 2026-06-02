@@ -18,7 +18,7 @@ from config import (
     FEEDBACK_LEARNING_ENABLED,
     HUMAN_FIXES_FILE,
 )
-from memory.case_store import CaseStore, TfidfRetriever
+from memory.case_store import CaseStore
 from utils import create_llm_reasoning, extract_json
 
 # ── 系统提示词 ────────────────────────────────────────────

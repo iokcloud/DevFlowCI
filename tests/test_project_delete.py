@@ -80,7 +80,7 @@ async def test_delete_completed_project(memory_db, monkeypatch):
 @pytest.mark.asyncio
 async def test_delete_removes_deliveries_and_error_logs(memory_db, monkeypatch, tmp_path):
     from database.db import async_session_factory
-    from main import DELIVERIES_DIR, app
+    from main import app
 
     monkeypatch.setattr("main.DELIVERIES_DIR", tmp_path)
     monkeypatch.setattr("workflow.project_cleanup.DELIVERIES_DIR", tmp_path)

@@ -10,7 +10,6 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 from sqlalchemy.orm import DeclarativeBase
-from sqlalchemy import text
 
 from config import DATABASE_URL
 
@@ -51,50 +50,33 @@ async def get_db() -> AsyncSession:  # type: ignore[misc]
 
 
 async def init_db() -> None:
-    """创建所有数据库表（首次启动时调用）。
+    """初始化数据库 — 优先使用 Alembic 迁移，首次启动时回退到 create_all。
 
-    同时尝试为新列做轻量迁移，避免因模型新增字段而报错。
+    迁移策略：
+    1. 优先执行 `alembic upgrade head`（所有 schema 变更通过迁移管理）
+    2. 如果 alembic 未初始化（全新部署），回退到 create_all
     """
+    import os
+    from pathlib import Path
+
+    # 检查是否已有 alembic 版本表（表示之前已运行过迁移）
+    db_path = Path(str(engine.url).replace("sqlite+aiosqlite:///", ""))
+    if not db_path.is_absolute():
+        db_path = Path.cwd() / db_path
+
+    try:
+        # 尝试运行 Alembic 迁移
+        from alembic.config import Config
+        from alembic import command
+
+        alembic_ini = Path(__file__).parent.parent / "alembic.ini"
+        if alembic_ini.exists() and db_path.exists():
+            alembic_cfg = Config(str(alembic_ini))
+            command.upgrade(alembic_cfg, "head")
+            return
+    except Exception:
+        pass  # Alembic 不可用或迁移失败，回退到 create_all
+
+    # 回退：使用 create_all（首次部署或 Alembic 不可用）
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-
-    # ── 轻量迁移：尝试添加可能缺失的新列 ──
-    async with engine.begin() as conn:
-        # alignment_json (v0.4.0 新增)
-        try:
-            await conn.execute(
-                text("ALTER TABLE projects ADD COLUMN alignment_json TEXT")
-            )
-        except Exception:
-            pass  # 列已存在（SQLite 不支持 IF NOT EXISTS）
-
-        try:
-            await conn.execute(
-                text("ALTER TABLE projects ADD COLUMN context_scan_json TEXT")
-            )
-        except Exception:
-            pass
-
-        try:
-            await conn.execute(
-                text("ALTER TABLE projects ADD COLUMN display_name VARCHAR(128)")
-            )
-        except Exception:
-            pass
-
-        for col_sql in (
-            "ALTER TABLE projects ADD COLUMN iteration INTEGER DEFAULT 1",
-            "ALTER TABLE projects ADD COLUMN requirement_addendum_json TEXT",
-        ):
-            try:
-                await conn.execute(text(col_sql))
-            except Exception:
-                pass
-
-    # ── FixSession 表迁移 (v0.6.0 新增：闭环修复记录) ──
-    try:
-        from database.models import Base as _Base
-        async with engine.begin() as conn:
-            await conn.run_sync(_Base.metadata.create_all)
-    except Exception:
-        pass

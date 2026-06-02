@@ -66,6 +66,8 @@ def assess_module_code(
     test_code: str = "",
     *,
     language: str = "python",
+    module_description: str = "",
+    spec_summary: str = "",
 ) -> CodeReadiness:
     """评估模块代码是否可进入测试/审查。
 
@@ -97,6 +99,15 @@ def assess_module_code(
                 issues.append(f"测试: {test_syntax}")
         elif test_code is not None and not test_code.strip():
             issues.append("测试代码为空")
+
+        if module_description or spec_summary:
+            from workflow.code_quick_fix import assess_missing_required_apis
+
+            issues.extend(
+                assess_missing_required_apis(
+                    code, module_description, spec_summary,
+                )
+            )
 
     phase = "ok"
     if issues:

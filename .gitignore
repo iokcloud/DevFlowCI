@@ -50,6 +50,12 @@ sessions/**/*
 # Jupyter
 .ipynb_checkpoints/
 
+# Runtime data — not source code
+docs/success_cases.json
+success_cases.json
+memory/auto_fix_cases.json
+memory/human_fixes.json
+
 # pytest
 .pytest_cache/
 htmlcov/

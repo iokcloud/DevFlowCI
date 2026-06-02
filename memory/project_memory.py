@@ -12,12 +12,11 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from config import PROJECT_MEMORY_DIR
-
 
 # ── 数据结构 ──────────────────────────────────────────────
 
@@ -47,7 +46,7 @@ class ProjectMemory:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "ProjectMemory":
+    def from_dict(cls, d: dict[str, Any]) -> ProjectMemory:
         return cls(
             directory=d.get("directory", ""),
             directory_hash=d.get("directory_hash", ""),
@@ -88,7 +87,7 @@ class ProjectMemoryStore:
         hash_name = hash_directory_path(directory)
         return self._base_dir / f"{hash_name}.json"
 
-    def load(self, directory: str) -> Optional[ProjectMemory]:
+    def load(self, directory: str) -> ProjectMemory | None:
         """加载指定目录的项目记忆。
 
         Args:
@@ -112,7 +111,7 @@ class ProjectMemoryStore:
         Args:
             memory: 要保存的 ProjectMemory 实例
         """
-        memory.last_updated = datetime.now(timezone.utc).isoformat()
+        memory.last_updated = datetime.now(UTC).isoformat()
         file_path = self._file_path(memory.directory)
         file_path.write_text(
             json.dumps(memory.to_dict(), ensure_ascii=False, indent=2),

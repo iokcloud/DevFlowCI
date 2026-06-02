@@ -7,13 +7,11 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
 from typing import Any
 
 from config import LLM_MAX_TOKENS, LLM_TIMEOUT_SECONDS
 from utils import create_llm_json, extract_json
-
 
 # ── 数据结构 ──────────────────────────────────────────────
 
@@ -170,9 +168,9 @@ class IntegratorAgent:
         if blocked_modules:
             blocked_names = ", ".join(m["module_name"] for m in blocked_modules)
             blocked_note = (
-                f"\n\n⚠️ 以下模块尚未完成（blocked），仅含占位代码，集成测试请跳过其功能：\n"
+                "\n\n⚠️ 以下模块尚未完成（blocked），仅含占位代码，集成测试请跳过其功能：\n"
                 + "\n".join(f"- **{m['module_name']}**: {m.get('description', '')[:100]}" for m in blocked_modules)
-                + f"\n集成时请将上述占位文件放置到项目结构的正确位置，但测试时请跳过它们。"
+                + "\n集成时请将上述占位文件放置到项目结构的正确位置，但测试时请跳过它们。"
             )
 
         prompt = f"""{INTEGRATOR_SYSTEM_PROMPT}

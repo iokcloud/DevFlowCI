@@ -7,7 +7,7 @@ import argparse
 import re
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -56,7 +56,7 @@ def git_info() -> dict:
 def resolve_session_id(explicit: str | None) -> str:
     if explicit:
         return explicit
-    today = datetime.now(timezone.utc).strftime("%Y%m%d")
+    today = datetime.now(UTC).strftime("%Y%m%d")
     SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
     existing = sorted(
         p.name
@@ -77,7 +77,7 @@ def ensure_summary(session_id: str, branch: str) -> Path:
     d.mkdir(parents=True, exist_ok=True)
     summary = d / "summary.md"
     if not summary.exists():
-        now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M")
+        now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M")
         summary.write_text(
             f"# 会话总结 — {session_id}\n\n"
             f"> 日期：{now}\n> 分支：{branch}\n\n"
@@ -115,7 +115,7 @@ def main() -> int:
     g = git_info()
     sid = resolve_session_id(args.session_id or None)
     session_dir = ensure_summary(sid, g["branch"])
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
     dirty_label = "有未提交改动" if g["dirty"] else "干净"
     goal = args.next_goal or "（运行 checkpoint 时加 --next-goal 填写）"
     uncommitted = g["status"] if g["dirty"] else "(无)"

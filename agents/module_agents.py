@@ -7,11 +7,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
 
-from memory.case_store import CaseStore
 from config import LLM_MAX_TOKENS
-from utils import create_llm_json, create_llm_text, extract_json
+from memory.case_store import CaseStore
+from utils import create_llm_json, extract_json
 
 MVP_SCOPE_NOTE = """
 ## MVP 范围（必须遵守）
@@ -98,6 +97,9 @@ CODER_SYSTEM_PROMPT = """你是一位高级全栈开发工程师。你的任务�
 6. test_code 使用 pytest 风格，覆盖至少 2 个正常路径和 1 个异常路径。
 7. 输出必须是有效 JSON。代码内部的双引号用反斜杠转义。
 8. 若标注 MVP，遵守单文件行数上限，优先可运行的小实现。
+9. 解析/IO 模块：仅「无匹配内容」可 return []；文件损坏或 IO 失败必须 raise（RuntimeError/ValueError），禁止 except Exception 后静默 return []。
+10. 数值字段用集中校验（如 rank∈[1,10000]、score≥0），越界 raise ValueError 或跳过坏行并 logging.warning。
+11. 若规格/描述要求 get_trends、get_risks 等对外 API，必须在模块顶层 def 同名函数；禁止只写 _parse_* 私有 helper。
 """
 
 TESTER_SYSTEM_PROMPT = """你是一位质量保证工程师。你的任务是审查代码和测试，判断是否通过。
