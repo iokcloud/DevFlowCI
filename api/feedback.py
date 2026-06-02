@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
@@ -13,6 +14,8 @@ from database.db import async_session_factory
 from database.models import Project
 from api.models import FeedbackRequest
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/projects", tags=["feedback"])
 
 @router.post("/{project_id}/feedback")
@@ -21,7 +24,8 @@ async def submit_feedback(project_id: str, body: FeedbackRequest) -> dict[str, A
     fixes_file = MEMORY_DIR / "human_fixes.json"
     try:
         data = json.loads(fixes_file.read_text(encoding="utf-8")) if fixes_file.exists() else {"fixes": []}
-    except Exception:
+    except Exception as exc:
+        logger.warning("读取 human_fixes.json 失败: %s", exc)
         data = {"fixes": []}
     data["fixes"].append({
         "original_code": body.original_code[:500],

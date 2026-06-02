@@ -21,11 +21,16 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
-from datetime import UTC, datetime
+from datetime import datetime, timezone
+
+UTC = timezone.utc
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 _ANALYTICS_FILE = Path(__file__).parent / ".analytics.json"
 _ANALYTICS_ENABLED = os.getenv("ANALYTICS_ENABLED", "false").lower() == "true"
@@ -68,7 +73,8 @@ def track(
             json.dumps({"events": data, "last_updated": datetime.now(UTC).isoformat()}, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
-    except Exception:
+    except Exception as exc:
+        logger.warning("使用分析事件记录失败: %s", exc)
         pass  # 分析失败不应影响主流程
 
 
@@ -143,7 +149,8 @@ def generate_report() -> dict[str, Any]:
             )
             resp = urllib.request.urlopen(req, timeout=10)
             devflow_suggestion = resp.read().decode("utf-8")[:500]
-        except Exception:
+        except Exception as exc:
+            logger.warning("DevFlow CI 连接失败: %s", exc)
             devflow_suggestion = "无法连接到 DevFlow CI 助手"
 
     return {

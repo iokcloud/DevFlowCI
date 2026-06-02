@@ -15,8 +15,13 @@ from __future__ import annotations
 
 import platform
 import sys
-from datetime import UTC, datetime
+import logging
+from datetime import datetime, timezone
+
+UTC = timezone.utc
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 def _get_uptime() -> float:
@@ -24,7 +29,8 @@ def _get_uptime() -> float:
     try:
         import time as _time
         return _time.time() - _time.process_time()
-    except Exception:
+    except Exception as exc:
+        logger.warning("获取进程运行时间失败: %s", exc)
         return -1.0
 
 
@@ -70,13 +76,15 @@ def health() -> dict[str, Any]:
         from autopilot.feature_flag import get_all_flags
         flags = get_all_flags()
         status_data["feature_flags"] = len(flags)
-    except Exception:
+    except Exception as exc:
+        logger.warning("获取 feature_flags 失败: %s", exc)
         status_data["feature_flags"] = "unavailable"
 
     try:
         from autopilot.self_healing import get_healing_stats
         status_data["self_healing"] = get_healing_stats()
-    except Exception:
+    except Exception as exc:
+        logger.warning("获取 self_healing 状态失败: %s", exc)
         status_data["self_healing"] = "disabled"
 
     return status_data

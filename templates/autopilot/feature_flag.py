@@ -18,10 +18,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 _FLAGS_FILE = Path(__file__).parent / "feature_flags.json"
 _CACHE: dict[str, dict[str, Any]] = {}
@@ -44,7 +47,8 @@ def _load_flags() -> dict[str, dict[str, Any]]:
         try:
             data = json.loads(_FLAGS_FILE.read_text(encoding="utf-8"))
             flags.update(data.get("flags", {}))
-        except Exception:
+        except Exception as exc:
+            logger.warning("加载特性开关配置失败: %s", exc)
             pass
 
     # 2. 从环境变量加载（优先级更高）

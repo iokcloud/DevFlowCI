@@ -11,9 +11,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import re
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime, timezone
+
+UTC = timezone.utc
 from typing import Any
 
 from config import (
@@ -25,6 +28,8 @@ from config import (
     ERROR_FIX_STRATEGY_MAP,
     ErrorType,
 )
+
+logger = logging.getLogger(__name__)
 
 # ── 错误分类 ──────────────────────────────────────────────
 
@@ -437,7 +442,8 @@ async def fix(
                         fix_summary=fix_summary,
                         strategy_used=strategy,
                     )
-                except Exception:
+                except Exception as exc:
+                    logger.warning("记录修复案例失败: %s", exc)
                     pass
                 return {
                     "fixed": True,

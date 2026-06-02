@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import traceback
 from datetime import datetime, timezone
@@ -94,6 +95,8 @@ from workflow.langgraph_def import (
     topological_sort,
 )
 from workflow.stream_relay import push_ai_token, AGENT_LABEL_MAP
+
+logger = logging.getLogger(__name__)
 
 
 # ── 从子模块导入（保持向下兼容的命名空间）─────────────────
@@ -193,8 +196,8 @@ class WorkflowExecutor:
         if directory:
             try:
                 project_memory_text = self._project_memory.format_for_prompt(directory)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("无法读取项目记忆: %s", exc)
 
         # ── 优先执行上下文分析：提取文档摘要供对齐 Agent 使用 ──
         structured_context: dict[str, Any] = {"analyzed_files": [], "source_files": []}
@@ -440,7 +443,8 @@ class WorkflowExecutor:
         if directory:
             try:
                 project_memory_text = self._project_memory.format_for_prompt(directory)
-            except Exception:
+            except Exception as exc:
+                logger.warning("规划时无法读取项目记忆: %s", exc)
                 pass
 
         for attempt in range(1, MAX_NON_MODULE_RETRIES + 1):
@@ -548,7 +552,8 @@ class WorkflowExecutor:
                         )
                         state["inferred_dependencies"] = deps
                         await push_log(pid, "SUCCESS", f"依赖推断完成: {deps.get('summary', '')}")
-                    except Exception:
+                    except Exception as exc:
+                        logger.warning("依赖推断失败，使用空依赖: %s", exc)
                         state["inferred_dependencies"] = {"dependencies": [], "system_dependencies": [], "summary": "推断失败"}
 
                 # ── 注入人类偏好 ──
@@ -557,10 +562,9 @@ class WorkflowExecutor:
                         prefs = PlannerAgent.load_human_preferences()
                         if prefs:
                             state["project_context"] = state.get("project_context", "") + prefs
-                    except Exception:
+                    except Exception as exc:
+                        logger.warning("加载人类偏好失败: %s", exc)
                         pass
-
-                await push_log(pid, "SUCCESS", f"规划完成：{len(plan_a.get('modules', []))} 个模块")
                 # 推送规划结果到 AI 流
                 plan_token_text = json.dumps({
                     "modules": [m.get("module_name", "") for m in modules],
@@ -581,7 +585,8 @@ class WorkflowExecutor:
                     )
 
                     sync_after_plan_ready(build_ctx_from_workflow_state(state))
-                except Exception:
+                except Exception as exc:
+                    logger.warning("计划同步文档失败: %s", exc)
                     pass
                 return state
 
@@ -867,7 +872,8 @@ class WorkflowExecutor:
                             plan=state["plan_modules"],
                             modules=modules_info,
                         )
-                except Exception:
+                except Exception as exc:
+                    logger.warning("保存成功案例失败: %s", exc)
                     pass
 
             return state
@@ -916,7 +922,8 @@ class WorkflowExecutor:
                     doc_ctx = load_docs_context_for_agents(pid)
                     if doc_ctx:
                         req = req + "\n\n" + doc_ctx
-                except Exception:
+                except Exception as exc:
+                    logger.warning("加载文档上下文失败: %s", exc)
                     pass
                 integration = await self._integrator.integrate(req, modules_info)
                 state["integration_result"] = {
@@ -1300,7 +1307,8 @@ class WorkflowExecutor:
                         try:
                             from workflow.closed_loop import cleanup_after_fix
                             await cleanup_after_fix(pid, module_name)
-                        except Exception:
+                        except Exception as exc:
+                            logger.warning("修复后清理失败: %s", exc)
                             pass
                         return
 
@@ -1344,7 +1352,8 @@ class WorkflowExecutor:
                     try:
                         from workflow.closed_loop import cleanup_after_fix
                         await cleanup_after_fix(pid, module_name)
-                    except Exception:
+                    except Exception as exc:
+                        logger.warning("修复后清理失败: %s", exc)
                         pass
                     return
 
@@ -1458,7 +1467,8 @@ class WorkflowExecutor:
                             module_code=mc,
                             module_filename=f"{mn}.py",
                         )
-                    except Exception:
+                    except Exception as exc:
+                        logger.warning("测试执行包装失败: %s", exc)
                         return None
 
                 async def _push_log(pid_, level, msg, module_name=""):

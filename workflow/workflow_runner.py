@@ -7,9 +7,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+UTC = timezone.utc
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +37,8 @@ from database.models import (
 )
 from workflow.executor import WorkflowExecutor, WorkflowState
 from workflow.sse_bridge import push_log, push_project_snapshot, remove_log_queue
+
+logger = logging.getLogger(__name__)
 
 # ── 后台任务追踪（用于终止）──────────────────────────
 
@@ -216,7 +221,8 @@ def _record_alignment_to_decisions(project_id: str, alignment_json_str: str | No
     try:
         with open(decisions_path, "a", encoding="utf-8") as f:
             f.write("\n".join(entry_lines))
-    except Exception:
+    except Exception as exc:
+        logger.warning("写入 decisions.md 失败: %s", exc)
         pass
 
 
@@ -262,7 +268,8 @@ async def _run_workflow_after_alignment(
             state["status"] = "needs_review"
             state.setdefault("errors", []).append(err_msg)
             await _save_state(project_id, state)
-        except Exception:
+        except Exception as exc:
+            logger.warning("异常时保存状态失败: %s", exc)
             pass
     finally:
         await asyncio.sleep(5)
@@ -372,7 +379,8 @@ async def _run_improvement(
             state["status"] = "needs_review"
             state.setdefault("errors", []).append(err_msg)
             await _save_state(project_id, state)
-        except Exception:
+        except Exception as exc:
+            logger.warning("异常时保存状态失败: %s", exc)
             pass
     finally:
         await asyncio.sleep(5)
@@ -398,7 +406,8 @@ async def _run_workflow(
             state["status"] = "needs_review"
             state.setdefault("errors", []).append(err_msg)
             await _save_state(project_id, state)
-        except Exception:
+        except Exception as exc:
+            logger.warning("异常时保存状态失败: %s", exc)
             pass
     finally:
         # ★ 对齐完成后不移除日志队列，等待用户确认后继续使用

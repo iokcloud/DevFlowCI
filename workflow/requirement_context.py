@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import os
-from datetime import UTC
+from datetime import timezone
+
+UTC = timezone.utc
 from typing import Any
 
 

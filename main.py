@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 from collections import defaultdict
 import json
+import logging
 import os
 import time as _time
 import uuid
@@ -80,6 +81,8 @@ from workflow.stream_relay import (
     remove_stream_queue,
     get_stream_queue,
 )
+
+logger = logging.getLogger(__name__)
 
 # ── 全局单例 ──────────────────────────────────────────────
 
@@ -1460,7 +1463,8 @@ async def submit_feedback(project_id: str, body: FeedbackRequest) -> dict[str, A
     fixes_file = MEMORY_DIR / "human_fixes.json"
     try:
         data = json.loads(fixes_file.read_text(encoding="utf-8")) if fixes_file.exists() else {"fixes": []}
-    except Exception:
+    except Exception as exc:
+        logger.warning("读取 human_fixes.json 失败: %s", exc)
         data = {"fixes": []}
     data["fixes"].append({
         "original_code": body.original_code[:500],
@@ -1599,7 +1603,8 @@ async def analyze_errors_endpoint(project_id: str | None = None) -> dict[str, An
                                 fix_summary=repair_result.fix_summary,
                                 strategy_used="batch_analyze",
                             )
-                        except Exception:
+                        except Exception as exc:
+                            logger.warning("批量分析中记录修复案例失败 (%s): %s", mod_name, exc)
                             pass
                 except Exception as fix_exc:
                     fix_suggestions.append(f"  ⚠️ 自动修复异常: {fix_exc}")
@@ -1785,7 +1790,8 @@ def _record_alignment_to_decisions(project_id: str, alignment_json_str: str | No
     try:
         with open(decisions_path, "a", encoding="utf-8") as f:
             f.write("\n".join(entry_lines))
-    except Exception:
+    except Exception as exc:
+        logger.warning("写入 decisions.md 失败: %s", exc)
         pass
 
 
@@ -1831,7 +1837,8 @@ async def _run_workflow_after_alignment(
             state["status"] = "needs_review"
             state.setdefault("errors", []).append(err_msg)
             await _save_state(project_id, state)
-        except Exception:
+        except Exception as exc:
+            logger.warning("异常时保存状态失败: %s", exc)
             pass
     finally:
         await asyncio.sleep(5)
@@ -1940,7 +1947,8 @@ async def _run_improvement(
             state["status"] = "needs_review"
             state.setdefault("errors", []).append(err_msg)
             await _save_state(project_id, state)
-        except Exception:
+        except Exception as exc:
+            logger.warning("异常时保存状态失败: %s", exc)
             pass
     finally:
         await asyncio.sleep(5)
@@ -1966,7 +1974,8 @@ async def _run_workflow(
             state["status"] = "needs_review"
             state.setdefault("errors", []).append(err_msg)
             await _save_state(project_id, state)
-        except Exception:
+        except Exception as exc:
+            logger.warning("异常时保存状态失败: %s", exc)
             pass
     finally:
         # ★ 对齐完成后不移除日志队列，等待用户确认后继续使用
@@ -1990,7 +1999,8 @@ async def _run_execution(project_id: str, state: WorkflowState) -> None:
             state["status"] = "needs_review"
             state.setdefault("errors", []).append(err_msg)
             await _save_state(project_id, state)
-        except Exception:
+        except Exception as exc:
+            logger.warning("异常时保存状态失败: %s", exc)
             pass
     finally:
         await asyncio.sleep(5)
@@ -2006,32 +2016,6 @@ if __name__ == "__main__":
         "main:app",
         host="0.0.0.0",
         port=8000,
-        reload=True,
-        reload_dirs=[
-            str(PROJECT_ROOT),
-            str(PROJECT_ROOT / "api"),
-            str(PROJECT_ROOT / "workflow"),
-            str(PROJECT_ROOT / "database"),
-            str(PROJECT_ROOT / "agents"),
-            str(PROJECT_ROOT / "memory"),
-            str(PROJECT_ROOT / "static"),
-        ],
-        reload_excludes=[
-            "*/deliveries/*",
-            "*/sessions/*",
-            "*/test_project/*",
-            "*/__pycache__/*",
-            "*/.pytest_cache/*",
-            "*/.ruff_cache/*",
-            "*/templates/*",
-            "*/venv/*",
-            "*/.git/*",
-            "*/.cursor/*",
-            "*/.deepcode/*",
-            "*/docs/*",
-            "*/scripts/*",
-            "*.db",
-            "*.log",
-        ],
+        reload=False,
         log_level="info",
     )

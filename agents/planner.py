@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 from config import (
@@ -140,6 +141,7 @@ DEPENDENCY_INFERENCE_PROMPT = """你是一位 DevOps 工程师。请分析项目
 3. required: true 表示运行时必需的，false 表示开发/可选依赖。
 4. 考虑项目类型（Web API / CLI / 数据处理 / 前端等）。"""
 
+logger = logging.getLogger(__name__)
 
 # ── PM Agent ──────────────────────────────────────────────
 
@@ -336,7 +338,8 @@ class PlannerAgent:
                 if b_errors:
                     return plan_a, {}, comparison, errors
             return plan_a, plan_b, comparison, []
-        except Exception:
+        except Exception as exc:
+            logger.warning("备选方案解析失败: %s", exc)
             return plan_a, {}, {}, errors
 
     async def infer_dependencies(self, requirement: str, project_context: str = "", project_type: str = "python") -> dict[str, Any]:
@@ -354,7 +357,8 @@ class PlannerAgent:
             response = await self._llm.ainvoke(prompt)
             raw_text: str = response.content if hasattr(response, "content") else str(response)
             return extract_json(raw_text)
-        except Exception:
+        except Exception as exc:
+            logger.warning("依赖推断失败: %s", exc)
             return {"dependencies": [], "system_dependencies": [], "summary": "推断失败"}
 
     @staticmethod
@@ -372,5 +376,6 @@ class PlannerAgent:
             for f in recent:
                 lines.append(f"- **修改类型**: {f.get('fix_type', 'Unknown')} — {f.get('description', '')[:80]}")
             return "\n".join(lines)
-        except Exception:
+        except Exception as exc:
+            logger.warning("加载人类偏好失败: %s", exc)
             return ""

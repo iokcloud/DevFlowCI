@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import re
 import subprocess
@@ -19,6 +20,8 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 # ── 数据结构 ──────────────────────────────────────────────
 
@@ -88,7 +91,8 @@ def _is_pytest_available() -> bool:
             capture_output=True, timeout=5,
         )
         return result.returncode == 0
-    except Exception:
+    except Exception as exc:
+        logger.warning("pytest 版本检查失败: %s", exc)
         return False
 
 
@@ -319,9 +323,9 @@ async def _install_sandbox_deps(sandbox: Path, module_code: str, test_code: str)
             timeout=60,
         )
         await proc.communicate()
-    except Exception:
+    except Exception as exc:
+        logger.warning("pip install 失败: %s", exc)
         pass
-
 
 # ── 核心执行函数 ──────────────────────────────────────────
 
@@ -524,7 +528,8 @@ async def run_integration_tests(
                 timeout=30,
             )
             await proc.communicate()
-        except Exception:
+        except Exception as exc:
+            logger.warning("pip install -r 失败: %s", exc)
             pass
 
     await _log("INFO", "[集成测试] 运行集成测试...")

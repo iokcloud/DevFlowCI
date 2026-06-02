@@ -7,9 +7,12 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime, timezone
+
+UTC = timezone.utc
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +21,8 @@ from workflow.requirement_context import (
     build_effective_requirement,
     parse_requirement_addenda,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _now_iso() -> str:
@@ -823,7 +828,8 @@ def sync_on_package(
                     else ""
                 ),
             )
-        except Exception:
+        except Exception as exc:
+            logger.warning("生成 QA_REPORT 失败: %s", exc)
             pass
 
     legacy_report = project_dir / "REVIEW_REPORT.md"

@@ -4,6 +4,8 @@
 提供依赖注入式的数据库会话获取。
 """
 
+import logging
+
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -12,6 +14,8 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.orm import DeclarativeBase
 
 from config import DATABASE_URL
+
+logger = logging.getLogger(__name__)
 
 # ── 异步引擎 ──────────────────────────────────────────────
 engine = create_async_engine(
@@ -74,8 +78,10 @@ async def init_db() -> None:
             alembic_cfg = Config(str(alembic_ini))
             command.upgrade(alembic_cfg, "head")
             return
-    except Exception:
-        pass  # Alembic 不可用或迁移失败，回退到 create_all
+    except Exception as exc:
+        logger.warning(
+            "Alembic 迁移不可用或执行失败，回退到 create_all: %s", exc
+        )
 
     # 回退：使用 create_all（首次部署或 Alembic 不可用）
     async with engine.begin() as conn:

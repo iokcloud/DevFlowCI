@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import asyncio
 import uuid as _uuid_mod
-from datetime import UTC, datetime, timezone
+from datetime import datetime, timezone
+
+UTC = timezone.utc
 from typing import Any, AsyncIterator
 
 from sqlalchemy import select as _sql_select
@@ -56,7 +58,8 @@ async def push_log(
     try:
         log_method = getattr(_log, level.lower(), _log.info)
         log_method(message, project_id=project_id, module_name=module_name or None)
-    except Exception:
+    except Exception as exc:
+        _log.warning("structlog 调用失败: %s", exc)
         pass
 
     entry = {
@@ -71,9 +74,9 @@ async def push_log(
         # 状态事件实时同步到 DB，避免 API 长时间显示旧状态
         try:
             asyncio.create_task(_sync_project_status(project_id, state_event))
-        except Exception:
+        except Exception as exc:
+            _log.warning("状态同步任务创建失败: %s", exc)
             pass
-    # 推送 SSE
     queue = get_log_queue(project_id)
     try:
         queue.put_nowait(entry)
@@ -88,19 +91,19 @@ async def push_log(
             _proj = await _db.execute(_sql_select(Project).where(Project.project_id == project_id))
             _proj_row = _proj.scalar_one_or_none()
             if _proj_row:
-                _log = ProjectLog(
+                _plog = ProjectLog(
                     project_id_fk=_proj_row.id,
                     level=level,
                     message=message[:1000],
                     module_name=module_name if module_name else None,
                 )
-                _db.add(_log)
+                _db.add(_plog)
                 await _db.commit()
-    except Exception:
+    except Exception as exc:
+        _log.warning("日志持久化失败: %s", exc)
         pass  # 持久化失败不阻塞主流程
 
-    # ★ ERROR / WARN 级别也写入 ErrorLog 表（用于聚合分析和自动修复）
-    if level in ("ERROR", "WARN"):
+    # ★ ERROR / WARN 级别也写入 ErrorLog 表
         try:
             from workflow.error_logger import write_error_log
             import uuid as _uuid_mod
@@ -114,7 +117,8 @@ async def push_log(
                 error_type=_err_type,
                 stacktrace="",
             )
-        except Exception:
+        except Exception as exc:
+            _log.warning("ErrorLog 写入失败: %s", exc)
             pass
 
 
@@ -153,7 +157,8 @@ async def push_project_snapshot(project_id: str, *, force: bool = False) -> None
         queue.put_nowait(entry)
     except asyncio.QueueFull:
         pass
-    except Exception:
+    except Exception as exc:
+        _log.warning("项目快照推送失败: %s", exc)
         pass
 
 
@@ -215,7 +220,8 @@ async def push_module_event(
             if description:
                 mod.description = description[:1000]
             await db.commit()
-    except Exception:
+    except Exception as exc:
+        _log.warning("模块状态 DB 更新失败: %s", exc)
         pass
 
     await push_project_snapshot(project_id)
@@ -292,7 +298,8 @@ async def _notify_ai_stream(
                 "agent": agent_name,
                 "content": content,
             })
-    except Exception:
+    except Exception as exc:
+        _log.warning("AI 流推送失败: %s", exc)
         pass  # 流式推送失败不影响主流程
 
 

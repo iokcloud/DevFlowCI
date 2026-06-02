@@ -18,8 +18,13 @@ from __future__ import annotations
 import json
 import logging
 import os
+
+_log = logging.getLogger(__name__)
+
 import sys
-from datetime import UTC, datetime
+from datetime import datetime, timezone
+
+UTC = timezone.utc
 from typing import Any
 
 
@@ -72,7 +77,8 @@ def _flush_remote() -> None:
         )
         urllib.request.urlopen(req, timeout=5)
         _LOG_QUEUE.clear()
-    except Exception:
+    except Exception as exc:
+        _log.warning("远程日志上报失败: %s", exc)
         pass  # 远程上报失败不应影响主流程
 
 

@@ -22,12 +22,17 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import traceback
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
+
+UTC = timezone.utc
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 # ── 错误分类 ─────────────────────────────────────────
 _ERROR_PATTERNS: dict[str, str] = {
@@ -82,7 +87,8 @@ def get_healing_stats() -> dict[str, Any]:
             "failed": len(cases) - successes,
             "enabled": os.getenv("SELF_HEALING_ENABLED", "true").lower() == "true",
         }
-    except Exception:
+    except Exception as exc:
+        logger.warning("获取修复统计失败: %s", exc)
         return {"total_fixes": 0, "enabled": True}
 
 
@@ -108,7 +114,8 @@ class SelfHealingEngine:
             return []
         try:
             return json.loads(self._fixes_file.read_text(encoding="utf-8")).get("cases", [])
-        except Exception:
+        except Exception as exc:
+            logger.warning("加载本地修复案例库失败: %s", exc)
             return []
 
     def _save_fix(self, fix: dict[str, Any]) -> None:
@@ -169,7 +176,8 @@ class SelfHealingEngine:
             resp = urllib.request.urlopen(req, timeout=30)
             data = json.loads(resp.read().decode("utf-8"))
             return data["choices"][0]["message"]["content"].strip()
-        except Exception:
+        except Exception as exc:
+            logger.warning("LLM API 调用失败: %s", exc)
             return None
 
     def attempt_fix(

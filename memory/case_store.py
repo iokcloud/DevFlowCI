@@ -9,15 +9,20 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 import re
 from collections import Counter
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime, timezone
+
+UTC = timezone.utc
 from pathlib import Path
 from typing import Any
 
 from config import MAX_SUCCESS_CASES, SIMILARITY_TOP_K, SUCCESS_CASES_FILE
+
+logger = logging.getLogger(__name__)
 
 # ── 数据结构 ──────────────────────────────────────────────
 
@@ -228,7 +233,8 @@ class CaseStore:
                         blocked_count=sum(1 for m in case.modules if m.get("status") == "blocked"),
                     ))
                 await db.commit()
-        except Exception:
+        except Exception as exc:
+            logger.warning("案例迁移写入 DB 失败: %s", exc)
             pass
 
     def search_similar(

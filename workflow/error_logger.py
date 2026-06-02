@@ -11,11 +11,15 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+UTC = timezone.utc
 from pathlib import Path
 from typing import Any
 
 from config import PROJECT_ROOT
+
+logger = logging.getLogger(__name__)
 
 # ── 日志文件路径 ──────────────────────────────────────────────
 ERROR_LOG_FILE: Path = PROJECT_ROOT / "server.log"
@@ -81,7 +85,8 @@ async def write_error_log(
         )
         with open(ERROR_LOG_FILE, "a", encoding="utf-8") as f:
             f.write(log_entry + "\n")
-    except Exception:
+    except Exception as exc:
+        logger.warning("错误日志写入文件失败: %s", exc)
         pass
 
     return db_id

@@ -11,9 +11,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime, timezone
+
+UTC = timezone.utc
 from typing import Any
 
 from config import (
@@ -21,6 +24,8 @@ from config import (
     AUTO_FIX_QUICK_REVIEW_MAX,
 )
 from workflow.auto_fix import classify_error, record_fix_case, search_similar_cases
+
+logger = logging.getLogger(__name__)
 
 # ── 数据结构 ──────────────────────────────────────────────
 
@@ -209,7 +214,8 @@ async def record_fix_attempt(
             db.add(session)
             await db.commit()
             return session.id
-    except Exception:
+    except Exception as exc:
+        logger.warning("写入修复记录失败: %s", exc)
         return None
 
 
@@ -246,7 +252,8 @@ async def cleanup_after_fix(
 
             await db.commit()
 
-    except Exception:
+    except Exception as exc:
+        logger.warning("数据库标记错误日志为 resolved 失败: %s", exc)
         pass
 
     # 同时更新 auto_fix_cases.json（如果存在）
@@ -268,6 +275,7 @@ async def cleanup_after_fix(
                     else:
                         archived_count += 1
                 except Exception:
+                    # 日期解析失败，保留该案例
                     active_cases.append(case)
 
             if archived_count > 0:
@@ -277,10 +285,9 @@ async def cleanup_after_fix(
                     encoding="utf-8",
                 )
                 stats["cleaned_files"] = archived_count
-    except Exception:
+    except Exception as exc:
+        logger.warning("清理过期修复案例文件失败: %s", exc)
         pass
-
-    return stats
 
 
 # ── 闭环修复主入口 ──────────────────────────────────────────
@@ -570,7 +577,7 @@ async def closed_loop_repair(
                             test_result = await do_test(module_name, test_code, code)
                             test_ok = test_result.passed if test_result and hasattr(test_result, 'passed') else True
                         except Exception:
-                            test_ok = False
+                            test_ok = False  # swallow: test execution is best-effort
 
                         if test_ok:
                             fix_summary = repair_result.fix_summary if hasattr(repair_result, 'fix_summary') else repair_result.get('fix_summary', '')

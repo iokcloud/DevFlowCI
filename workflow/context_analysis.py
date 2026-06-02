@@ -6,7 +6,10 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+import logging
+from datetime import datetime, timezone
+
+UTC = timezone.utc
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +18,8 @@ from sqlalchemy import select as _sql_select
 from database.db import async_session_factory
 from database.models import ModuleStatus, ModuleTask, Project, ProjectLog
 from workflow.sse_bridge import push_module_event
+
+logger = logging.getLogger(__name__)
 
 # ── 忽略目录列表 ──────────────────────────────────────────
 
@@ -80,7 +85,8 @@ def _read_json_as_text(fp: Path) -> str:
     try:
         raw = fp.read_text(encoding="utf-8", errors="ignore")
         data = json.loads(raw)
-    except Exception:
+    except Exception as exc:
+        logger.warning("JSON 文件解析失败，回退到原始文本: %s, error=%s", fp.name, exc)
         return fp.read_text(encoding="utf-8", errors="ignore")
 
     def _flatten(obj: Any, prefix: str = "") -> list[str]:
@@ -160,7 +166,8 @@ async def persist_context_scan(project_id: str, scan: dict[str, Any]) -> None:
                 project.context_scan_json = json.dumps(scan, ensure_ascii=False)
                 await db.commit()
         await push_project_snapshot(project_id, force=True)
-    except Exception:
+    except Exception as exc:
+        logger.warning("持久化上下文扫描失败: %s", exc)
         pass
 
 
@@ -213,7 +220,8 @@ async def _sync_project_status(project_id: str, status: str) -> None:
                 project.status = db_status
                 await db.commit()
                 await push_project_snapshot(project_id, force=True)
-    except Exception:
+    except Exception as exc:
+        logger.warning("同步项目状态失败: %s", exc)
         pass  # 状态同步失败不阻塞主流程
 
 
@@ -259,7 +267,8 @@ async def _persist_plan_modules(
                     ModuleStatus.PENDING.value,
                     description=m.get("description", ""),
                 )
-    except Exception:
+    except Exception as exc:
+        logger.warning("持久化规划模块失败: %s", exc)
         pass
 
 
@@ -351,7 +360,8 @@ async def _persist_module_result(
             status_str,
             failure_reason=result_data.get("failure_reason", "") or "",
         )
-    except Exception:
+    except Exception as exc:
+        logger.warning("持久化模块结果失败 (%s): %s", module_name, exc)
         pass
 
 
@@ -450,10 +460,11 @@ def analyze_project_context_structured(directory: str) -> dict[str, Any]:
             if total_chars >= max_doc_chars:
                 truncated = True
                 break
-        except Exception:
+        except Exception as exc:
+            logger.warning("读取文档文件失败: %s, error=%s", fp.name, exc)
             pass
 
-    # ── 4. 收集源代码文件列表（不读内容，仅列出） ──
+    # ── 4. 收集源代码文件列表
     source_files: list[str] = []
     for pattern in ["*.py", "*.js", "*.ts", "*.go", "*.rs", "*.java"]:
         for sf in dir_path.glob(pattern):
@@ -624,7 +635,8 @@ def _generate_doc_summaries(
         result["source_files"] = source_files[:20]
         result["no_documentation_found"] = False
         return result
-    except Exception:
+    except Exception as exc:
+        logger.warning("LLM 文档摘要生成失败: %s", exc)
         return {
             "analyzed_files": [{"file": fc["file"], "summary": fc["content"][:200]} for fc in file_contents[:5]],
             "overall_summary": f"项目类型: {project_type}（LLM 摘要生成失败，使用原始文档片段）",
@@ -641,7 +653,8 @@ def _read_docx(fp: Path) -> str:
         doc = Document(str(fp))
         paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
         return "\n".join(paragraphs)
-    except Exception:
+    except Exception as exc:
+        logger.warning("读取 docx 文件失败: %s, error=%s", fp.name, exc)
         return ""
 
 
