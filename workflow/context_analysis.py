@@ -14,8 +14,7 @@ from sqlalchemy import select as _sql_select
 
 from database.db import async_session_factory
 from database.models import ModuleStatus, ModuleTask, Project, ProjectLog
-
-# ── 忽略目录列表 ──────────────────────────────────────────
+from workflow.sse_bridge import push_module_event
 
 # ── 忽略目录列表 ──────────────────────────────────────────
 
