@@ -340,11 +340,24 @@ async def closed_loop_repair(
     Returns:
         ClosedLoopResult
     """
+    from workflow.iteration_automation import (
+        build_checklist_repair_feedback,
+        is_preserve_worthy_code,
+    )
+
     error_type = classify_error(failure_reason)
     fix_history: list[dict[str, Any]] = []
     code = current_code
     test_code = current_test_code
     feedback = ""
+    if review_issues and is_preserve_worthy_code(current_code, current_test_code):
+        feedback = build_checklist_repair_feedback(
+            review_issues,
+            prior_code=current_code,
+            prior_test=current_test_code,
+            failure_reason=failure_reason,
+            module_name=module_name,
+        )
 
     await push_log(
         project_id, "INFO",
@@ -370,14 +383,13 @@ async def closed_loop_repair(
     failed_strategies_set = set(history.get("failed_strategies", []))
 
     # 确定尝试策略优先级（跳过已知失败的）
+    strategy_order = (
+        ["modify_code", "repair_agent", "history_case", "direct_retry"]
+        if feedback
+        else ["direct_retry", "modify_code", "repair_agent", "history_case"]
+    )
     strategies: list[str] = [
-        s for s in [
-            "direct_retry",
-            "modify_code",
-            "repair_agent",
-            "history_case",
-        ]
-        if s not in failed_strategies_set
+        s for s in strategy_order if s not in failed_strategies_set
     ]
 
     if not strategies:

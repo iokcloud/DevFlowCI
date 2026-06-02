@@ -708,14 +708,8 @@ async def iterate_project(
         if not project.plan_json:
             raise HTTPException(400, "项目缺少规划数据，无法迭代")
 
-        addendum_text = (body.addendum or "").strip()
+        user_addendum = (body.addendum or "").strip()
         new_iteration = (project.iteration or 1) + 1
-        if addendum_text:
-            project.requirement_addendum_json = append_requirement_addendum(
-                project.requirement_addendum_json,
-                text=addendum_text,
-                round_num=new_iteration,
-            )
         project.iteration = new_iteration
         project.status = ProjectStatus.EXECUTING
         await db.commit()
@@ -726,18 +720,6 @@ async def iterate_project(
     state, _project = built
     state["iteration"] = new_iteration
 
-    addenda = parse_requirement_addenda(_project.requirement_addendum_json)
-    state["requirement"] = build_effective_requirement(
-        _project.requirement, addenda
-    )
-    state["base_requirement"] = _project.requirement
-    state["requirement_addendum_json"] = _project.requirement_addendum_json
-    state["project_context"] = build_iteration_context(
-        iteration=new_iteration,
-        addendum_text=addendum_text,
-        global_review=state.get("global_review"),
-    )
-
     blocked = list(state.get("blocked_modules") or [])
     if body.module_names:
         target_modules = [n.strip() for n in body.module_names if n.strip()]
@@ -745,7 +727,7 @@ async def iterate_project(
     elif blocked:
         target_modules = blocked
         reintegrate_only = False
-    elif addendum_text:
+    elif user_addendum:
         target_modules = []
         reintegrate_only = True
     else:
@@ -753,6 +735,60 @@ async def iterate_project(
             400,
             "请填写需求补充说明，或指定要补跑的模块（当前无 blocked 模块）",
         )
+
+    from workflow.iteration_automation import (
+        build_auto_iterate_addendum,
+        merge_addenda,
+    )
+
+    name_to_module = {m["module_name"]: m for m in state.get("plan_modules", [])}
+    auto_parts: list[str] = []
+    if target_modules and not reintegrate_only:
+        for name in target_modules:
+            prior = state.get("module_results", {}).get(name, {})
+            issues = prior.get("errors") or []
+            mod = name_to_module.get(name, {})
+            auto_parts.append(
+                build_auto_iterate_addendum(
+                    name,
+                    mod.get("description", ""),
+                    issues,
+                    iteration=new_iteration,
+                    failure_reason=prior.get("failure_reason", ""),
+                )
+            )
+    auto_addendum = "\n\n".join(auto_parts)
+    addendum_text = merge_addenda(user_addendum, auto_addendum)
+
+    if addendum_text:
+        async with async_session_factory() as db:
+            result = await db.execute(
+                select(Project).where(Project.project_id == project_id)
+            )
+            proj = result.scalar_one_or_none()
+            if proj:
+                proj.requirement_addendum_json = append_requirement_addendum(
+                    proj.requirement_addendum_json,
+                    text=addendum_text,
+                    round_num=new_iteration,
+                )
+                await db.commit()
+        state["requirement_addendum_json"] = append_requirement_addendum(
+            _project.requirement_addendum_json,
+            text=addendum_text,
+            round_num=new_iteration,
+        )
+
+    addenda = parse_requirement_addenda(state.get("requirement_addendum_json"))
+    state["requirement"] = build_effective_requirement(
+        _project.requirement, addenda
+    )
+    state["base_requirement"] = _project.requirement
+    state["project_context"] = build_iteration_context(
+        iteration=new_iteration,
+        addendum_text=addendum_text,
+        global_review=state.get("global_review"),
+    )
 
     from workflow.document_sync import ctx_from_project, sync_iteration_start
 
@@ -770,7 +806,8 @@ async def iterate_project(
         "INFO",
         f"🔄 用户启动第 {new_iteration} 轮迭代"
         + (f"，补充：{addendum_text[:80]}…" if len(addendum_text) > 80
-           else (f"，补充：{addendum_text}" if addendum_text else "")),
+           else (f"，补充：{addendum_text}" if addendum_text else ""))
+        + ("（含工作流自动生成窄 scope）" if auto_addendum and not user_addendum else ""),
     )
 
     _register_task(

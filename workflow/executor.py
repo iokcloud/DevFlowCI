@@ -76,6 +76,14 @@ from workflow.test_runner import (
     TestResult,
 )
 from workflow.code_readiness import assess_module_code, format_readiness_feedback
+from workflow.iteration_automation import (
+    build_checklist_repair_feedback,
+    build_iteration_context_extras,
+    ensure_delivery_fixtures,
+    infer_extra_requirements,
+    merge_requirements_text,
+    resolve_blocked_artifacts,
+)
 from workflow.langgraph_def import (
     ModuleState,
     WorkflowState,
@@ -1849,6 +1857,36 @@ class WorkflowExecutor:
                 name_to_module = {
                     m["module_name"]: m for m in state["plan_modules"]
                 }
+                all_fixtures: list[str] = []
+                structured = state.get("structured_context") or {}
+                for name in target_modules:
+                    mod = name_to_module.get(name) or {}
+                    desc = mod.get("description", "")
+                    paths = ensure_delivery_fixtures(
+                        pid,
+                        desc,
+                        directory=state.get("directory", "") or "",
+                        structured_context=structured,
+                    )
+                    all_fixtures.extend(paths)
+                if all_fixtures:
+                    await push_log(
+                        pid,
+                        "INFO",
+                        "📎 已准备 fixtures：" + ", ".join(sorted(set(all_fixtures))),
+                    )
+                extra_ctx = build_iteration_context_extras(
+                    iteration=iteration,
+                    target_modules=target_modules,
+                    module_results=state.get("module_results", {}),
+                    plan_modules=state["plan_modules"],
+                    fixture_paths=sorted(set(all_fixtures)),
+                )
+                state["project_context"] = (
+                    (state.get("project_context") or "").strip()
+                    + "\n" + extra_ctx
+                ).strip()
+
                 for name in target_modules:
                     module = name_to_module.get(name)
                     if not module:
@@ -2281,6 +2319,27 @@ class WorkflowExecutor:
         description = module.get("description", "")
         module_type = module.get("type", "backend")
         context = state.get("project_context", "")
+        iteration_num = state.get("iteration", 1) or 1
+        prior_result = state.get("module_results", {}).get(module_name, {})
+        prior_code = prior_result.get("code", "") or ""
+        prior_test = prior_result.get("test_code", "") or ""
+        prior_errors = prior_result.get("errors") or []
+        if isinstance(prior_errors, str):
+            prior_errors = [prior_errors]
+        prior_failure = prior_result.get("failure_reason", "") or ""
+
+        fixture_paths = ensure_delivery_fixtures(
+            pid,
+            description,
+            directory=state.get("directory", "") or "",
+            structured_context=state.get("structured_context"),
+        )
+        if fixture_paths:
+            context = (
+                context
+                + "\n样例数据路径：" + ", ".join(fixture_paths)
+            ).strip()
+
         mvp_cap = _resolve_mvp_module_cap(state)
         mvp_mode = mvp_cap == 1
         alignment = state.get("alignment_result") or {}
@@ -2316,6 +2375,22 @@ class WorkflowExecutor:
             test_result: ModuleTestResult | None = None
             review: ReviewResult | None = None
             feedback = ""
+            if iteration_num > 1 and (
+                prior_failure or prior_errors or prior_code
+            ):
+                feedback = build_checklist_repair_feedback(
+                    prior_errors,
+                    prior_code=prior_code,
+                    prior_test=prior_test,
+                    failure_reason=prior_failure,
+                    module_name=module_name,
+                )
+                await push_log(
+                    pid,
+                    "INFO",
+                    f"[{module_name}] 迭代模式：已注入审查清单与既有代码上下文",
+                    module_name=module_name,
+                )
             failure_reason = ""
             total_rounds = 0
             auto_fix_attempted = False
@@ -2464,8 +2539,12 @@ class WorkflowExecutor:
                 )
 
                 if retry < MAX_REVIEW_RETRIES - 1:
-                    feedback = (
-                        f"前次审查发现以下问题，请修复：\n{issues_text}"
+                    feedback = build_checklist_repair_feedback(
+                        review.issues,
+                        prior_code=code.code if code else "",
+                        prior_test=code.test_code if code else "",
+                        failure_reason=issues_text,
+                        module_name=module_name,
                     )
                 else:
                     await push_log(
@@ -2474,6 +2553,7 @@ class WorkflowExecutor:
                         module_name=module_name,
                     )
 
+            loop_result = None
             # ── 异常自愈阶段（闭环修复：查询历史 → 修复 → 验证 → 重试）──
             if AUTO_FIX_ENABLED and code is not None and review is not None:
                 auto_fix_attempted = True
@@ -2647,20 +2727,55 @@ class WorkflowExecutor:
                 module_name=module_name,
             )
 
-            stub_code = _generate_stub_code(
-                module_name, module_type, description,
-                final_reason,
+            loop_code = ""
+            loop_test = ""
+            if loop_result is not None and getattr(loop_result, "code", ""):
+                loop_code = loop_result.code
+                loop_test = loop_result.test_code or ""
+            candidate_codes = [
+                loop_code,
+                code.code if code else "",
+                prior_code,
+            ]
+            candidate_tests = [
+                loop_test,
+                code.test_code if code else "",
+                prior_test,
+            ]
+            blocked_code, blocked_test, used_stub = resolve_blocked_artifacts(
+                module_name=module_name,
+                module_type=module_type,
+                description=description,
+                failure_reason=final_reason,
+                code_candidates=candidate_codes,
+                test_candidates=candidate_tests,
+                stub_generator=_generate_stub_code,
             )
+            if used_stub:
+                await push_log(
+                    pid,
+                    "WARN",
+                    f"[{module_name}] 无可保留代码，已写入占位文件",
+                    module_name=module_name,
+                )
+            else:
+                await push_log(
+                    pid,
+                    "INFO",
+                    f"[{module_name}] 保留末次代码供下轮迭代修复（非占位）",
+                    module_name=module_name,
+                )
             result_data: dict[str, Any] = {
                 "module_name": module_name,
                 "status": "blocked",
                 "spec": {"summary": spec.summary},
-                "code": stub_code,
-                "test_code": "",
+                "code": blocked_code,
+                "test_code": blocked_test,
                 "retry_count": total_rounds,
                 "errors": review.issues if review else [final_reason],
                 "failure_reason": final_reason,
                 "auto_fix_history": json.dumps(fix_history, ensure_ascii=False) if fix_history else "[]",
+                "preserved_code": not used_stub,
             }
             state["module_results"][module_name] = result_data
             await _persist_module_result(pid, module_name, result_data)
@@ -2671,18 +2786,25 @@ class WorkflowExecutor:
                 f"[{module_name}] 执行异常: {exc}",
                 module_name=module_name,
             )
-            # 异常也生成占位文件
-            stub_code = _generate_stub_code(
-                module_name, module_type, description,
-                f"执行异常: {str(exc)}",
+            exc_reason = f"执行异常: {exc}"
+            exc_code, exc_test, exc_stub = resolve_blocked_artifacts(
+                module_name=module_name,
+                module_type=module_type,
+                description=description,
+                failure_reason=exc_reason,
+                code_candidates=[prior_code],
+                test_candidates=[prior_test],
+                stub_generator=_generate_stub_code,
             )
             state["module_results"][module_name] = {
                 "module_name": module_name,
                 "status": "blocked",
                 "errors": [str(exc)],
-                "code": stub_code,
-                "failure_reason": str(exc),
+                "code": exc_code,
+                "test_code": exc_test,
+                "failure_reason": exc_reason,
                 "auto_fix_history": "[]",
+                "preserved_code": not exc_stub,
             }
             await _persist_module_result(pid, module_name, state["module_results"][module_name])
 
@@ -2840,6 +2962,19 @@ class WorkflowExecutor:
             requirements = "fastapi>=0.115.0\nuvicorn[standard]>=0.34.0\npytest>=8.0.0\n"
             await push_log(pid, "WARN", "集成未生成 requirements.txt，已写入默认依赖")
 
+        extra_reqs: list[str] = []
+        for m in state["plan_modules"]:
+            mname = m["module_name"]
+            mres = state["module_results"].get(mname, {})
+            extra_reqs.extend(
+                infer_extra_requirements(
+                    m.get("description", ""),
+                    mres.get("code", "") or "",
+                )
+            )
+        if extra_reqs:
+            requirements = merge_requirements_text(requirements, extra_reqs)
+
         integration_tests = (integration.integration_tests or "").strip()
         if not integration_tests:
             integration_tests = (
@@ -2848,6 +2983,16 @@ class WorkflowExecutor:
                 "    assert True\n"
             )
             await push_log(pid, "WARN", "集成未生成 integration_tests，已写入占位测试")
+
+        fixtures_src = DELIVERIES_DIR / pid / "fixtures"
+        if fixtures_src.is_dir():
+            import shutil
+
+            shutil.copytree(
+                fixtures_src,
+                project_dir / "fixtures",
+                dirs_exist_ok=True,
+            )
 
         (project_dir / "main.py").write_text(main_code, encoding="utf-8")
         (project_dir / "README.md").write_text(readme, encoding="utf-8")

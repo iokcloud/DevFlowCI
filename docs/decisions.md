@@ -10,6 +10,16 @@
 
 ---
 
+## 决策 #021：迭代自动化 — 保留末次代码、自动生成窄 scope 与 fixtures
+
+- **日期**：2026-06-02
+- **状态**：已采纳
+- **上下文**：用户迭代补跑 blocked 模块时，审查仅差少量问题却回退为 NotImplementedError 占位；且需手写窄 scope 补充说明与样例数据。
+- **选择**：`workflow/iteration_automation.py` — blocked 时优先保留可修复代码；`/iterate` 无补充说明时自动生成 addendum；按描述生成 fixtures；闭环修复优先 checklist+modify_code。
+- **影响**：`executor.py`、`closed_loop.py`、`main.py`；打包时合并 python-docx 等依赖并复制 fixtures。
+
+---
+
 ## 决策 #001：采用结构化记忆文件 + 会话仪式作为项目协作基础
 
 - **日期**：2026-05-31
