@@ -289,6 +289,8 @@ async def cleanup_after_fix(
         logger.warning("清理过期修复案例文件失败: %s", exc)
         pass
 
+    return stats
+
 
 # ── 闭环修复主入口 ──────────────────────────────────────────
 
@@ -404,9 +406,20 @@ async def closed_loop_repair(
         )
         strategies = ["direct_retry", "modify_code", "add_error_handling", "repair_agent", "history_case"]
 
+    # ── 优化：direct_retry 仅对瞬态错误（API timeout/rate limit）有效 ──
+    _transient_errors = {"api_timeout", "api_rate_limit"}
+    if error_type.value not in _transient_errors and "direct_retry" in strategies:
+        strategies.remove("direct_retry")
+        await push_log(
+            project_id, "INFO",
+            f"[闭环修复][{module_name}] 非瞬态错误'{error_type.value}'，跳过 direct_retry（退避等待对当前错误无效）",
+            module_name=module_name,
+        )
+
     # ── 步骤2：闭环修复循环 ──
     total_rounds = 0
     loop_count = 0
+    _last_meaningful_code = ""  # 无进展检测：记录上一轮有效代码
 
     for strategy in strategies:
         if total_rounds >= max_total_rounds:
@@ -456,7 +469,7 @@ async def closed_loop_repair(
                     test_ok = True
                     try:
                         test_result = await do_test(module_name, test_code, code)
-                        test_ok = test_result.passed if test_result and hasattr(test_result, 'passed') else True
+                        test_ok = test_result.passed if test_result and hasattr(test_result, 'passed') else False
                     except Exception as te:
                         await push_log(project_id, "WARN", f"[闭环修复][{module_name}] 测试验证异常: {te}", module_name=module_name)
                         test_ok = False
@@ -482,8 +495,8 @@ async def closed_loop_repair(
                     else:
                         fix_entry["detail"] = "审查通过但测试验证失败"
                         feedback = f"测试验证失败，请修复：\n{review_result.summary if hasattr(review_result, 'summary') else ''}"
-
-                feedback = "审查反馈：\n" + "\n".join(f"  - {i}" for i in (review_result.issues if hasattr(review_result, 'issues') else review_result.get('issues', [])))
+                else:
+                    feedback = "审查反馈：\n" + "\n".join(f"  - {i}" for i in (review_result.issues if hasattr(review_result, 'issues') else review_result.get('issues', [])))
 
             elif strategy == "modify_code":
                 await push_log(project_id, "INFO", f"[闭环修复·修改代码][{module_name}] 注入审查反馈...", module_name=module_name)
@@ -501,7 +514,7 @@ async def closed_loop_repair(
                         test_ok = True
                         try:
                             test_result = await do_test(module_name, test_code, code)
-                            test_ok = test_result.passed if test_result and hasattr(test_result, 'passed') else True
+                            test_ok = test_result.passed if test_result and hasattr(test_result, 'passed') else False
                         except Exception:
                             test_ok = False
 
@@ -524,6 +537,9 @@ async def closed_loop_repair(
                                 strategy_used=strategy, code=code, test_code=test_code,
                                 fix_history=fix_history,
                             )
+                        # 审查通过但测试失败，跳出快速审查循环
+                        feedback = f"审查通过但测试验证失败"
+                        break
 
                     if qr < quick_review_max - 1:
                         issues = review_result.issues if hasattr(review_result, 'issues') else review_result.get('issues', [])
@@ -531,8 +547,8 @@ async def closed_loop_repair(
                         code_obj = await do_code(module_name, spec_detail, feedback)
                         code = code_obj.code if hasattr(code_obj, 'code') else code_obj.get('code', '')
                         test_code = code_obj.test_code if hasattr(code_obj, 'test_code') else code_obj.get('test_code', '')
-
-                feedback = "审查反馈：\n" + "\n".join(f"  - {i}" for i in (review_result.issues if hasattr(review_result, 'issues') else []))
+                else:
+                    feedback = "审查反馈：\n" + "\n".join(f"  - {i}" for i in (review_result.issues if hasattr(review_result, 'issues') else []))
 
             elif strategy == "add_error_handling":
                 await push_log(project_id, "INFO", f"[闭环修复·错误处理][{module_name}] 专项注入异常处理要求...", module_name=module_name)
@@ -561,7 +577,7 @@ async def closed_loop_repair(
                         test_ok = True
                         try:
                             test_result = await do_test(module_name, test_code, code)
-                            test_ok = test_result.passed if test_result and hasattr(test_result, 'passed') else True
+                            test_ok = test_result.passed if test_result and hasattr(test_result, 'passed') else False
                         except Exception:
                             test_ok = False
 
@@ -584,6 +600,9 @@ async def closed_loop_repair(
                                 strategy_used=strategy, code=code, test_code=test_code,
                                 fix_history=fix_history,
                             )
+                        # 审查通过但测试失败，跳出快速审查循环
+                        feedback = f"审查通过但测试验证失败"
+                        break
 
                     if qr < quick_review_max - 1:
                         issues = review_result.issues if hasattr(review_result, 'issues') else review_result.get('issues', [])
@@ -591,8 +610,8 @@ async def closed_loop_repair(
                         code_obj = await do_code(module_name, spec_detail, eh_feedback)
                         code = code_obj.code if hasattr(code_obj, 'code') else code_obj.get('code', '')
                         test_code = code_obj.test_code if hasattr(code_obj, 'test_code') else code_obj.get('test_code', '')
-
-                feedback = "审查反馈：\n" + "\n".join(f"  - {i}" for i in (review_result.issues if hasattr(review_result, 'issues') else []))
+                else:
+                    feedback = "审查反馈：\n" + "\n".join(f"  - {i}" for i in (review_result.issues if hasattr(review_result, 'issues') else []))
 
             elif strategy == "repair_agent":
                 await push_log(project_id, "INFO", f"[闭环修复·反思][{module_name}] 调用 RepairAgent...", module_name=module_name)
@@ -635,7 +654,7 @@ async def closed_loop_repair(
                         test_ok = True
                         try:
                             test_result = await do_test(module_name, test_code, code)
-                            test_ok = test_result.passed if test_result and hasattr(test_result, 'passed') else True
+                            test_ok = test_result.passed if test_result and hasattr(test_result, 'passed') else False
                         except Exception:
                             test_ok = False  # swallow: test execution is best-effort
 
@@ -666,6 +685,9 @@ async def closed_loop_repair(
                                 strategy_used=strategy, code=code, test_code=test_code,
                                 fix_history=fix_history,
                             )
+                        # 审查通过但测试失败，跳出快速审查循环
+                        feedback = f"审查通过但测试验证失败"
+                        break
 
                     if qr < quick_review_max - 1:
                         issues = review_result.issues if hasattr(review_result, 'issues') else review_result.get('issues', [])
@@ -710,7 +732,7 @@ async def closed_loop_repair(
                         test_ok = True
                         try:
                             test_result = await do_test(module_name, test_code, code)
-                            test_ok = test_result.passed if test_result and hasattr(test_result, 'passed') else True
+                            test_ok = test_result.passed if test_result and hasattr(test_result, 'passed') else False
                         except Exception:
                             test_ok = False
 
@@ -741,6 +763,17 @@ async def closed_loop_repair(
                                 strategy_used=strategy, code=code, test_code=test_code,
                                 fix_history=fix_history,
                             )
+                        # 审查通过但测试验证失败
+                        fix_entry["detail"] = "历史案例修复审查通过但测试验证失败"
+                        feedback = f"历史案例参考修复审查通过但测试未通过"
+                    else:
+                        issues = review_result.issues if hasattr(review_result, 'issues') else review_result.get('issues', [])
+                        fix_entry["detail"] = f"历史案例修复审查不通过: {', '.join(issues[:3])}"
+                        feedback = "审查反馈：\n" + "\n".join(f"  - {i}" for i in issues)
+                else:
+                    reason = repair_result.reason if hasattr(repair_result, 'reason') else repair_result.get('reason', '无法修复')
+                    fix_entry["detail"] = f"历史案例参考修复失败: {reason}"
+                    feedback = f"历史案例参考无法修复: {reason}"
 
             # 本轮策略未成功，记录失败
             fix_history.append(fix_entry)
@@ -762,6 +795,18 @@ async def closed_loop_repair(
                         f"[闭环修复][{module_name}] 新找到 {len(history['similar_module_fixes'])} 条成功案例",
                         module_name=module_name,
                     )
+
+            # ── 优化：无进展检测 — 若代码无变化则提前退出 ──
+            new_code = code if code else ""
+            if loop_count >= 2 and new_code == _last_meaningful_code:
+                await push_log(
+                    project_id, "WARN",
+                    f"[闭环修复][{module_name}] 连续 {loop_count} 轮代码无实质变化，退出自愈循环",
+                    module_name=module_name,
+                )
+                break
+            if new_code and len(new_code) > 50:
+                _last_meaningful_code = new_code
 
         except Exception as exc:
             fix_entry["detail"] = f"策略 '{strategy}' 异常: {exc}"
