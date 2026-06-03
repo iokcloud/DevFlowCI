@@ -90,7 +90,7 @@ def _read_json_as_text(fp: Path) -> str:
         if isinstance(obj, dict):
             for k, v in obj.items():
                 key = f"{prefix}.{k}" if prefix else str(k)
-                if isinstance(v, (dict, list)):
+                if isinstance(v, dict | list):
                     lines.extend(_flatten(v, key))
                 elif v is not None and str(v).strip():
                     lines.append(f"{key}: {str(v).strip()[:500]}")

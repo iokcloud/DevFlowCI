@@ -57,7 +57,7 @@ def track(
     # 仅保留安全的元数据字段
     safe_keys = {"endpoint", "status", "duration_ms", "feature_name", "error_type", "module"}
     for k, v in kwargs.items():
-        if k in safe_keys and isinstance(v, (str, int, float, bool)):
+        if k in safe_keys and isinstance(v, str | int | float | bool):
             event[k] = v
 
     try:

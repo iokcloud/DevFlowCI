@@ -70,9 +70,8 @@ async def init_db() -> None:
 
     try:
         # 尝试运行 Alembic 迁移
-        from alembic.config import Config
-
         from alembic import command
+        from alembic.config import Config
 
         alembic_ini = Path(__file__).parent.parent / "alembic.ini"
         if alembic_ini.exists() and db_path.exists():
