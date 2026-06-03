@@ -302,15 +302,72 @@ def _parse_pytest_output(output_text: str, known_tests: list[str]) -> TestResult
     return result
 
 
-async def _install_sandbox_deps(sandbox: Path, module_code: str, test_code: str) -> None:
-    """按模块/测试 import 推断并安装缺失依赖到沙箱。"""
-    from workflow.iteration_automation import infer_extra_requirements
+def _sandbox_pythonpath(sandbox: Path) -> str:
+    """沙箱 PYTHONPATH：.deps 优先，其次沙箱根目录。"""
+    deps_dir = sandbox / ".deps"
+    if deps_dir.is_dir():
+        return f"{deps_dir}{os.pathsep}{sandbox}"
+    return str(sandbox)
+
+
+def build_integration_module_files(
+    plan_modules: list[dict[str, Any]],
+    module_results: dict[str, dict[str, Any]],
+    *,
+    directory: str = "",
+    memory_passed: set[str] | None = None,
+) -> dict[str, str]:
+    """组装集成测试沙箱内的模块文件（含目录上已通过依赖）。"""
+    files: dict[str, str] = {}
+    for m in plan_modules:
+        name = m.get("module_name", "")
+        if not name:
+            continue
+        m_result = module_results.get(name, {})
+        mc = (m_result.get("code") or "").strip()
+        if not mc or m_result.get("status") == "blocked":
+            continue
+        ext = ".html" if m.get("type") == "frontend" else ".py"
+        files[f"{name}{ext}"] = mc
+
+    if not directory:
+        return files
+
+    needed: set[str] = set(memory_passed or ())
+    for m in plan_modules:
+        for dep in m.get("dependencies") or []:
+            if isinstance(dep, str) and dep:
+                needed.add(dep)
+
+    for name in needed:
+        fname = f"{name}.py"
+        if fname in files:
+            continue
+        path = Path(directory) / fname
+        if path.is_file():
+            try:
+                files[fname] = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                pass
+    return files
+
+
+async def _install_sandbox_deps(
+    sandbox: Path,
+    module_code: str,
+    test_code: str = "",
+    *,
+    requirements_text: str = "",
+) -> None:
+    """按 requirements + import 推断安装依赖到沙箱 .deps。"""
+    from workflow.iteration_automation import infer_extra_requirements, merge_requirements_text
 
     packages = infer_extra_requirements("", f"{module_code}\n{test_code}")
-    if not packages:
+    merged = merge_requirements_text(requirements_text, packages)
+    if not merged.strip():
         return
     req_file = sandbox / "requirements.txt"
-    req_file.write_text("\n".join(packages) + "\n", encoding="utf-8")
+    req_file.write_text(merged, encoding="utf-8")
     try:
         proc = await asyncio.wait_for(
             asyncio.create_subprocess_exec(
@@ -320,12 +377,11 @@ async def _install_sandbox_deps(sandbox: Path, module_code: str, test_code: str)
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
             ),
-            timeout=60,
+            timeout=90,
         )
         await proc.communicate()
     except Exception as exc:
         logger.warning("pip install 失败: %s", exc)
-        pass
 
 # ── 核心执行函数 ──────────────────────────────────────────
 
@@ -385,10 +441,7 @@ async def run_module_tests(
 
     await _install_sandbox_deps(sandbox, module_code, test_code)
 
-    deps_dir = sandbox / ".deps"
-    pythonpath = str(sandbox)
-    if deps_dir.is_dir():
-        pythonpath = f"{deps_dir}{os.pathsep}{pythonpath}"
+    pythonpath = _sandbox_pythonpath(sandbox)
 
     await _log("INFO", f"[测试执行] 运行 pytest: {test_file.name}")
 
@@ -472,6 +525,9 @@ async def run_integration_tests(
     module_files: dict[str, str] | None = None,  # {filename: code}
     timeout: int = 60,
     log_callback=None,
+    *,
+    requirements_text: str = "",
+    main_code: str = "",
 ) -> TestResult:
     """在集成环境中执行集成测试。
 
@@ -512,25 +568,24 @@ async def run_integration_tests(
         for fname, fcode in module_files.items():
             (sandbox / fname).write_text(fcode, encoding="utf-8")
 
+    if main_code and main_code.strip():
+        (sandbox / "main.py").write_text(main_code, encoding="utf-8")
+
     # conftest
     (sandbox / "conftest.py").touch()
 
-    # 安装依赖（如果需要）
-    req_file = sandbox / "requirements.txt"
-    if req_file.exists():
-        try:
-            proc = await asyncio.wait_for(
-                asyncio.create_subprocess_exec(
-                    sys.executable, "-m", "pip", "install", "-r", str(req_file),
-                    "--quiet", "--target", str(sandbox / ".deps"),
-                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
-                ),
-                timeout=30,
-            )
-            await proc.communicate()
-        except Exception as exc:
-            logger.warning("pip install -r 失败: %s", exc)
-            pass
+    code_blob_parts = [integration_test_code]
+    if module_files:
+        code_blob_parts.extend(module_files.values())
+    if main_code:
+        code_blob_parts.append(main_code)
+    await _install_sandbox_deps(
+        sandbox,
+        "\n".join(code_blob_parts),
+        requirements_text=requirements_text,
+    )
+
+    pythonpath = _sandbox_pythonpath(sandbox)
 
     await _log("INFO", "[集成测试] 运行集成测试...")
 
@@ -542,7 +597,11 @@ async def run_integration_tests(
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
                 cwd=str(sandbox),
-                env={**os.environ, "PYTHONPATH": str(sandbox), "PYTHONIOENCODING": "utf-8"},
+                env={
+                    **os.environ,
+                    "PYTHONPATH": pythonpath,
+                    "PYTHONIOENCODING": "utf-8",
+                },
             ),
             timeout=timeout,
         )
@@ -617,6 +676,16 @@ async def run_full_test_suite(
     # 写入 conftest
     (sandbox_dir / "conftest.py").touch()
 
+    req_path = sandbox_dir / "requirements.txt"
+    req_text = req_path.read_text(encoding="utf-8", errors="ignore") if req_path.is_file() else ""
+    code_blob = "\n".join(
+        f.read_text(encoding="utf-8", errors="ignore") for f in sandbox_dir.glob("*.py")
+    )
+    await _install_sandbox_deps(
+        sandbox_dir, code_blob, requirements_text=req_text,
+    )
+    pythonpath = _sandbox_pythonpath(sandbox_dir)
+
     try:
         proc = await asyncio.wait_for(
             asyncio.create_subprocess_exec(
@@ -627,7 +696,11 @@ async def run_full_test_suite(
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
                 cwd=str(sandbox_dir),
-                env={**os.environ, "PYTHONPATH": str(sandbox_dir), "PYTHONIOENCODING": "utf-8"},
+                env={
+                    **os.environ,
+                    "PYTHONPATH": pythonpath,
+                    "PYTHONIOENCODING": "utf-8",
+                },
             ),
             timeout=timeout,
         )

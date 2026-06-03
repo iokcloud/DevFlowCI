@@ -265,12 +265,33 @@ def ensure_delivery_fixtures(
     return created
 
 
+_IMPORT_PACKAGE_HINTS: list[tuple[str, str]] = [
+    (r"\bflask\b", "flask>=3.0.0"),
+    (r"\bfastapi\b", "fastapi>=0.115.0"),
+    (r"\buvicorn\b", "uvicorn>=0.34.0"),
+    (r"\bstarlette\b", "starlette>=0.37.0"),
+    (r"\brequests\b", "requests>=2.31.0"),
+    (r"\bhttpx\b", "httpx>=0.27.0"),
+    (r"\bpydantic\b", "pydantic>=2.0.0"),
+    (r"\bnumpy\b", "numpy>=1.26.0"),
+    (r"\bpandas\b", "pandas>=2.0.0"),
+    (r"\bdocx\b|python-docx|Document\(", "python-docx>=1.1.0"),
+    (r"\bopenai\b", "openai>=1.0.0"),
+    (r"\blangchain\b", "langchain>=0.2.0"),
+]
+
+
 def infer_extra_requirements(module_description: str, code: str = "") -> list[str]:
     """从描述/代码推断需写入 requirements.txt 的依赖。"""
     deps: list[str] = []
     blob = f"{module_description}\n{code}"
-    if re.search(r"docx|python-docx|Document\(", blob, re.I):
-        deps.append("python-docx>=1.1.0")
+    seen: set[str] = set()
+    for pattern, pkg in _IMPORT_PACKAGE_HINTS:
+        if re.search(pattern, blob, re.I):
+            name = pkg.split("==")[0].split(">=")[0].strip().lower()
+            if name not in seen:
+                deps.append(pkg)
+                seen.add(name)
     return deps
 
 

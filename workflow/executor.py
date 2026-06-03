@@ -94,6 +94,7 @@ from workflow.requirement_context import merge_sources_label
 from workflow.stream_relay import AGENT_LABEL_MAP, push_ai_token
 from workflow.test_runner import (
     TestResult,
+    build_integration_module_files,
     run_full_test_suite,
     run_integration_tests,
     run_module_tests,
@@ -790,20 +791,31 @@ class WorkflowExecutor:
             # ── 集成测试执行 ──
             await push_log(pid, "INFO", "🧪 执行集成测试...")
             try:
-                integration_test_code = state.get("integration_result", {}).get("integration_tests", "")
-                module_files: dict[str, str] = {}
-                for m_name, m_result in state.get("module_results", {}).items():
-                    mc = m_result.get("code", "")
-                    if mc and m_result.get("status") != "blocked":
-                        ext = ".html" if any(
-                            pm.get("module_name") == m_name and pm.get("type") == "frontend"
-                            for pm in state["plan_modules"]
-                        ) else ".py"
-                        module_files[f"{m_name}{ext}"] = mc
+                integration_data = state.get("integration_result", {}) or {}
+                integration_test_code = integration_data.get("integration_tests", "")
+                directory = state.get("directory", "") or ""
+                memory_passed: set[str] = set()
+                if directory:
+                    try:
+                        memory_passed = self._project_memory.get_passed_module_names(
+                            directory
+                        )
+                    except Exception:
+                        memory_passed = set()
+                module_files = build_integration_module_files(
+                    state.get("plan_modules") or [],
+                    state.get("module_results") or {},
+                    directory=directory,
+                    memory_passed=memory_passed,
+                )
                 it_result = await run_integration_tests(
                     integration_test_code=integration_test_code,
-                    project_id=pid, module_files=module_files,
-                    timeout=TEST_INTEGRATION_TIMEOUT, log_callback=push_log,
+                    project_id=pid,
+                    module_files=module_files,
+                    timeout=TEST_INTEGRATION_TIMEOUT,
+                    log_callback=push_log,
+                    requirements_text=integration_data.get("requirements", ""),
+                    main_code=integration_data.get("main_code", ""),
                 )
                 state["integration_result"]["test_result"] = it_result.to_dict()
                 await push_log(
@@ -841,10 +853,19 @@ class WorkflowExecutor:
                             (project_dir / f"{name}{ext}").write_text(mc, encoding="utf-8")
                         if tcode:
                             (project_dir / f"test_{name}.py").write_text(tcode, encoding="utf-8")
-                    # 写入集成测试
-                    it_code = state.get("integration_result", {}).get("integration_tests", "")
+                    # 写入集成测试与主入口
+                    integration_data = state.get("integration_result", {}) or {}
+                    it_code = integration_data.get("integration_tests", "")
                     if it_code:
                         (project_dir / "test_integration.py").write_text(it_code, encoding="utf-8")
+                    main_code = integration_data.get("main_code", "")
+                    if main_code:
+                        (project_dir / "main.py").write_text(main_code, encoding="utf-8")
+                    req_text = integration_data.get("requirements", "")
+                    if req_text:
+                        (project_dir / "requirements.txt").write_text(
+                            req_text, encoding="utf-8"
+                        )
                     (project_dir / "conftest.py").touch()
 
                     full_result = await run_full_test_suite(
@@ -861,7 +882,10 @@ class WorkflowExecutor:
                     # 决策：全量测试结果处理
                     if full_result.all_passed:
                         await push_log(pid, "SUCCESS", f"全量测试全部通过！({full_result.passed}/{full_result.total})")
-                    elif full_result.failed <= TEST_MAX_FAILURES_BEFORE_WARN:
+                    elif (
+                        full_result.failed <= TEST_MAX_FAILURES_BEFORE_WARN
+                        and full_result.errors == 0
+                    ):
                         await push_log(pid, "WARN", f"全量测试有 {full_result.failed} 个失败（≤{TEST_MAX_FAILURES_BEFORE_WARN}），尝试最后一次修复...")
                         # 最后一次修复尝试（简化版：直接标记为 completed_with_warnings）
                         state["status"] = "completed_with_warnings"

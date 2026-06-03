@@ -4,6 +4,9 @@
 
 ## [Unreleased]
 
+### 修复
+- **集成/全量测试沙箱**：写入 `main.py`、合并 `requirements` 并 pip 安装到 `.deps`；补全目录上已通过依赖模块；collect error 不再误触发「0 failed 再修」
+
 ### 新增
 - **编码两轮生成**（`CODE_GEN_TWO_PHASE=true`）：先 `code` 后 `test_code`，各阶段独立就绪校验，降低 JSON 截断（`agents/module_agents.py`）
 - **已通过模块 API 注入**：按 `dependencies` / 项目记忆 / `module_results` 与目录 `{name}.py` 提取公共签名，注入 analyze 与 code（`workflow/passed_module_context.py`）
