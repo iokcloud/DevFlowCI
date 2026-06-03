@@ -10,7 +10,7 @@
 
 环境变量:
     TEST_E2E_BASE         服务地址（默认 http://127.0.0.1:8000）
-    TEST_E2E_HEARTBEAT    心跳输出间隔秒数（默认 15）
+    TEST_E2E_HEARTBEAT    心跳输出间隔秒数（默认 10）
     TEST_E2E_STUCK_WARN   卡住警告阈值秒数（默认 120）
 
 前置: 服务已启动且 .env 中 DEEPSEEK_API_KEY 有效。
@@ -35,7 +35,7 @@ if sys.platform == "win32":
 import httpx
 
 BASE = os.getenv("TEST_E2E_BASE", "http://127.0.0.1:8000")
-HEARTBEAT_SEC = int(os.getenv("TEST_E2E_HEARTBEAT", "15"))
+HEARTBEAT_SEC = int(os.getenv("TEST_E2E_HEARTBEAT", "10"))
 STUCK_WARN_SEC = int(os.getenv("TEST_E2E_STUCK_WARN", "120"))
 RESULTS: dict[str, dict] = {}
 TERMINAL_STATUSES = frozenset(

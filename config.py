@@ -65,7 +65,7 @@ DATABASE_URL: str = os.getenv(
 )
 
 # ── 工作流配置 ────────────────────────────────────────────
-MAX_REVIEW_RETRIES: int = 5        # 单个模块审查最大重试次数（永不卡死策略：提高到5次）
+MAX_REVIEW_RETRIES: int = 3        # 单模块审查重试上限（auto_fix 兜底，无需过多轮次）
 MAX_CODE_READINESS_RETRIES: int = int(
     os.getenv("MAX_CODE_READINESS_RETRIES", "2")
 )  # 每轮审查前编码就绪校验重试（截断/语法未通过时不进入测试/审查）
