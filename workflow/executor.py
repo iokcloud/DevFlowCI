@@ -103,6 +103,7 @@ logger = logging.getLogger(__name__)
 
 from workflow.sse_bridge import (
     SNAPSHOT_DEBOUNCE_SEC,
+    _sync_project_status,
     get_log_queue,
     push_log,
     push_module_event,
@@ -129,7 +130,6 @@ from workflow.context_analysis import (
     _read_doc_file_content,
     _read_docx,
     _read_json_as_text,
-    _sync_project_status,
     _update_module_status,
     analyze_project_context,
     analyze_project_context_structured,
@@ -1035,17 +1035,25 @@ class WorkflowExecutor:
         name_to_idx = {m["module_name"]: i for i, m in enumerate(modules)}
         # 计算每个模块的深度（最长依赖链长度）
         depth: dict[str, int] = {}
+        visiting: set[str] = set()  # 检测循环依赖
 
         def get_depth(name: str) -> int:
             if name in depth:
                 return depth[name]
             if name not in name_to_idx:
                 return 0
+            if name in visiting:
+                # 循环依赖：标记为0并中止递归
+                logger.warning("检测到模块循环依赖: %s", name)
+                depth[name] = 0
+                return 0
+            visiting.add(name)
             deps = modules[name_to_idx[name]].get("dependencies", [])
             max_dep = 0
             for dep in deps:
                 max_dep = max(max_dep, get_depth(dep) + 1)
             depth[name] = max_dep
+            visiting.discard(name)
             return max_dep
 
         for m in modules:
@@ -1427,7 +1435,7 @@ class WorkflowExecutor:
                         pid, mn, spec_obj, fb, compact_mvp,
                         attempt_label="自愈编码",
                     )
-                    if not ready and coded is not None:
+                    if not ready:
                         raise ValueError(fb_out or "编码产出未就绪")
                     return coded
 
@@ -1457,7 +1465,9 @@ class WorkflowExecutor:
                     from workflow.test_runner import run_module_tests
                     readiness = assess_module_code(mc, tc)
                     if mc and not readiness.ready:
-                        return None
+                        # 代码未就绪，无法执行测试，返回失败结果
+                        from workflow.test_runner import ModuleTestResult as _MTR
+                        return _MTR(passed=False, summary="代码未就绪，无法执行测试")
                     try:
                         return await run_module_tests(
                             module_name=mn,
@@ -1475,7 +1485,6 @@ class WorkflowExecutor:
                     await push_log(pid_, level, msg, module_name=module_name)
 
                 # 执行闭环修复
-                remaining_rounds = AUTO_FIX_MAX_TOTAL_ROUNDS - MAX_REVIEW_RETRIES
                 loop_result = await closed_loop_repair(
                     project_id=pid,
                     module_name=module_name,
@@ -1497,7 +1506,6 @@ class WorkflowExecutor:
                     do_repair=_do_repair,
                     do_test=_do_test,
                     push_log=_push_log,
-                    max_total_rounds=remaining_rounds,
                 )
 
                 # 更新全局计数器

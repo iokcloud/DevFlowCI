@@ -180,49 +180,7 @@ def _estimate_tokens(text: str) -> int:
     return chinese + other // 4
 
 
-# ── 数据库状态同步（避免API显示滞后）──────────────────────
-
-async def _sync_project_status(project_id: str, status: str) -> None:
-    """将工作流状态实时同步到数据库 Project 表。
-
-    解决 plan_only / execute_from_plan 等阶段完成后，
-    API 仍显示旧状态的问题。
-    """
-    try:
-        from database.db import async_session_factory
-        from database.models import Project, ProjectStatus
-        from sqlalchemy import select as _sel
-
-        _status_map = {
-            "created": ProjectStatus.CREATED,
-            "aligning": ProjectStatus.ALIGNING,
-            "aligned": ProjectStatus.ALIGNED,
-            "planning": ProjectStatus.PLANNING,
-            "plan_ready": ProjectStatus.PLAN_READY,
-            "executing": ProjectStatus.EXECUTING,
-            "integrating": ProjectStatus.INTEGRATING,
-            "reviewing": ProjectStatus.REVIEWING,
-            "completed": ProjectStatus.COMPLETED,
-            "failed": ProjectStatus.FAILED,
-            "needs_review": ProjectStatus.NEEDS_REVIEW,
-            "finalized": ProjectStatus.FINALIZED,
-        }
-        db_status = _status_map.get(status)
-        if db_status is None:
-            return
-
-        async with async_session_factory() as db:
-            result = await db.execute(
-                _sel(Project).where(Project.project_id == project_id)
-            )
-            project = result.scalar_one_or_none()
-            if project:
-                project.status = db_status
-                await db.commit()
-                await push_project_snapshot(project_id, force=True)
-    except Exception as exc:
-        logger.warning("同步项目状态失败: %s", exc)
-        pass  # 状态同步失败不阻塞主流程
+# ── 数据库状态同步（已移至 sse_bridge.py）──────────────────
 
 
 async def _persist_plan_modules(

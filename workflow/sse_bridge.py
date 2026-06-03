@@ -303,3 +303,45 @@ async def _notify_ai_stream(
         pass  # 流式推送失败不影响主流程
 
 
+async def _sync_project_status(project_id: str, status: str) -> None:
+    """将工作流状态实时同步到数据库 Project 表。
+
+    解决 plan_only / execute_from_plan 等阶段完成后，
+    API 仍显示旧状态的问题。
+    """
+    try:
+        from database.db import async_session_factory as _asf
+        from database.models import Project as _Project, ProjectStatus as _PS
+        from sqlalchemy import select as _sel
+
+        _status_map = {
+            "created": _PS.CREATED,
+            "aligning": _PS.ALIGNING,
+            "aligned": _PS.ALIGNED,
+            "planning": _PS.PLANNING,
+            "plan_ready": _PS.PLAN_READY,
+            "executing": _PS.EXECUTING,
+            "integrating": _PS.INTEGRATING,
+            "reviewing": _PS.REVIEWING,
+            "completed": _PS.COMPLETED,
+            "failed": _PS.FAILED,
+            "needs_review": _PS.NEEDS_REVIEW,
+            "finalized": _PS.FINALIZED,
+        }
+        db_status = _status_map.get(status)
+        if db_status is None:
+            return
+
+        async with _asf() as db:
+            result = await db.execute(
+                _sel(_Project).where(_Project.project_id == project_id)
+            )
+            project = result.scalar_one_or_none()
+            if project:
+                project.status = db_status
+                await db.commit()
+                await push_project_snapshot(project_id, force=True)
+    except Exception as exc:
+        _log.warning("同步项目状态失败: %s", exc)
+
+
