@@ -7,17 +7,13 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import timezone
 
 UTC = timezone.utc
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import select as _sql_select
-
-from database.db import async_session_factory
-from database.models import ModuleStatus, ModuleTask, Project, ProjectLog
-from workflow.sse_bridge import push_module_event
+from workflow.sse_bridge import push_module_event, push_project_snapshot
 
 logger = logging.getLogger(__name__)
 
@@ -153,9 +149,10 @@ def build_context_scan_meta(
 async def persist_context_scan(project_id: str, scan: dict[str, Any]) -> None:
     """将目录扫描结果写入数据库并推送快照。"""
     try:
+        from sqlalchemy import select as _sql_select
+
         from database.db import async_session_factory
         from database.models import Project
-        from sqlalchemy import select as _sql_select
 
         async with async_session_factory() as db:
             result = await db.execute(
@@ -188,10 +185,11 @@ async def _persist_plan_modules(
 ) -> None:
     """规划完成后将模块列表写入 DB，供 API 轮询展示进度。"""
     try:
-        from database.db import async_session_factory
-        from database.models import ModuleTask, ModuleStatus, Project
         from sqlalchemy import delete as sql_delete
         from sqlalchemy import select as _sel
+
+        from database.db import async_session_factory
+        from database.models import ModuleStatus, ModuleTask, Project
 
         async with async_session_factory() as db:
             result = await db.execute(
@@ -253,9 +251,10 @@ async def _persist_module_result(
 ) -> None:
     """单个模块完成后增量写入 DB，供 test_flow / 前端实时展示。"""
     try:
+        from sqlalchemy import select as _sel
+
         from database.db import async_session_factory
         from database.models import ModuleStatus, ModuleTask, Project
-        from sqlalchemy import select as _sel
 
         status_str = result_data.get("status", "failed")
         try:

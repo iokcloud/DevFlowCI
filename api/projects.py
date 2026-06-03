@@ -4,29 +4,26 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import uuid
 from datetime import datetime, timedelta, timezone
 
 UTC = timezone.utc
-from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select as _sel, delete as _del
+from fastapi import APIRouter, HTTPException
 
-from config import DELIVERIES_DIR, PROJECT_ROOT, STATIC_DIR
-from database.db import async_session_factory
-from database.models import ModuleStatus, ModuleTask, Project, ProjectLog, ProjectStatus
-from workflow.sse_bridge import push_log, remove_log_queue
-from workflow.workflow_runner import _register_task, _run_workflow, _running_tasks
 from api.models import (
+    _ACTIVE_PROJECT_STATUSES,
+    _TERMINAL_PROJECT_STATUSES,
     CleanupProjectsRequest,
     CreateProjectRequest,
     UpdateDisplayNameRequest,
-    _ACTIVE_PROJECT_STATUSES,
-    _TERMINAL_PROJECT_STATUSES,
 )
+from database.db import async_session_factory
+from database.models import Project, ProjectLog, ProjectStatus
+from workflow.langgraph_def import WorkflowState
+from workflow.sse_bridge import push_log, remove_log_queue
+from workflow.workflow_runner import _register_task, _run_workflow, _running_tasks
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
@@ -38,7 +35,6 @@ async def _delete_project_record(
     """删除单个项目记录及关联交付物/日志。返回是否删除成功。"""
     from sqlalchemy import delete, select
 
-    from database.db import async_session_factory
     from database.models import ErrorLog, Project
     from workflow.project_cleanup import cleanup_delivery_artifacts, prune_human_fixes
 
@@ -71,7 +67,6 @@ async def _all_project_ids() -> set[str]:
     """数据库中所有 project_id。"""
     from sqlalchemy import select
 
-    from database.db import async_session_factory
     from database.models import Project
 
     async with async_session_factory() as db:
@@ -94,7 +89,6 @@ async def create_project(
     - 仅目录 → 扫描目录资料/代码后对齐（不再注入固定「分析代码」占位文案）
     - 两者都有 → 文字指令 + 目录扫描结果合并分析
     """
-    from database.db import async_session_factory
 
     requirement = body.requirement.strip()
     directory = body.directory.strip() if body.directory else ""
@@ -203,7 +197,6 @@ async def get_history(limit: int = 20) -> list[dict[str, Any]]:
     """
     from sqlalchemy import desc, select
 
-    from database.db import async_session_factory
 
     async with async_session_factory() as db:
         result = await db.execute(
@@ -285,7 +278,6 @@ async def _delete_project_impl(
     """删除历史项目（运行中项目会先终止）。"""
     from sqlalchemy import select
 
-    from database.db import async_session_factory
 
     async with async_session_factory() as db:
         result = await db.execute(
@@ -342,7 +334,6 @@ async def cleanup_projects(body: CleanupProjectsRequest) -> dict[str, Any]:
     """
     from sqlalchemy import select
 
-    from database.db import async_session_factory
 
     allowed = {s.value for s in ProjectStatus}
     target_statuses = {s for s in body.statuses if s in allowed}
@@ -405,7 +396,6 @@ async def update_project_display_name(
     """
     from sqlalchemy import select
 
-    from database.db import async_session_factory
 
     name = body.display_name.strip()
     if not name:
@@ -436,7 +426,6 @@ async def get_recent_logs(project_id: str, limit: int = 150) -> list[dict[str, A
     """
     from sqlalchemy import desc, select
 
-    from database.db import async_session_factory
 
     limit = max(1, min(limit, 500))
     async with async_session_factory() as db:

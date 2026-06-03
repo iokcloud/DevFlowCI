@@ -9,13 +9,11 @@ from typing import Any
 
 UTC = timezone.utc
 
-from fastapi import APIRouter, HTTPException
-from sqlalchemy import select as _sel
+from fastapi import APIRouter
 
-from config import MAX_HUMAN_FIXES, MEMORY_DIR
-from database.db import async_session_factory
-from database.models import Project
 from api.models import FeedbackRequest
+from config import MAX_HUMAN_FIXES, MEMORY_DIR
+from workflow.sse_bridge import push_log
 
 logger = logging.getLogger(__name__)
 
