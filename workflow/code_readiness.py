@@ -58,6 +58,21 @@ def _detect_truncation(source: str) -> list[str]:
         if pat.search(stripped):
             issues.append("包含占位/未完成标记，疑似编码尚未完成")
 
+    # ── 检测"语法正确但逻辑不完整"的截断 ──
+    # 场景：LLM 在函数体中段被截断，括号已闭合但函数未写完
+    _INCOMPLETE_ENDS = frozenset(
+        (":", ",", "+", "-", "*", "/", "=", "(", "[", "{", "\\",
+         "and", "or", "not", "in", "is", "as", "with", "if",
+         "elif", "else", "for", "while", "try", "except", "finally",
+         "yield", "return", "assert", "raise", "import", "from")
+    )
+    if last_line and last_line.split()[-1].rstrip(":") in _INCOMPLETE_ENDS:
+        issues.append("最后一行代码不完整，疑似输出被截断")
+
+    # 检测 bare comment trail — 如 # ... 或 # (truncated)
+    if last_line.startswith("#") and len(last_line) < 20:
+        issues.append("以注释结尾且内容过短，疑似占位输出")
+
     return issues
 
 

@@ -526,6 +526,14 @@ async def _try_modify_code(
 
         feedback = augment_review_repair_hints([fix_ctx.error_text], feedback)
 
+    # ── 截断检测：若 reviewer 指出截断问题，追加精简提示 ──
+    _truncation_keywords = ("截断", "truncated", "未完成", "不完整", "被截")
+    if any(kw in (fix_ctx.error_text or "") for kw in _truncation_keywords) or any(
+        any(kw in (issue or "") for kw in _truncation_keywords)
+        for issue in (fix_ctx.review_issues or [])
+    ):
+        feedback += "\n⚠️ 上次输出被截断，请输出更精简的实现（单文件≤120行），确保 JSON 可闭合。\n"
+
     try:
         from agents.module_agents import ModuleSpec as _ModuleSpec
 

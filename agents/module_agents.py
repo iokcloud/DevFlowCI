@@ -89,16 +89,19 @@ CODER_SYSTEM_PROMPT = """你是一位高级全栈开发工程师。你的任务�
 
 ## 代码要求
 1. 代码必须包含完整的 import 语句。
-2. 所有公共函数/类必须包含 type hints 和 docstring。
+2. 所有公共函数/类必须包含 type hints 和 docstring，但 docstring 应简明扼要（1-2 行即可）。
 3. 异常处理必须覆盖外部调用。
 4. 不得包含硬编码的密钥或密码。
 5. 不要使用 print()，使用 logging 模块。
 6. test_code 使用 pytest 风格，覆盖至少 2 个正常路径和 1 个异常路径。
 7. 输出必须是有效 JSON。代码内部的双引号用反斜杠转义。
-8. 若标注 MVP，遵守单文件行数上限，优先可运行的小实现。
-9. 解析/IO 模块：仅「无匹配内容」可 return []；文件损坏或 IO 失败必须 raise（RuntimeError/ValueError），禁止 except Exception 后静默 return []。
-10. 数值字段用集中校验（如 rank∈[1,10000]、score≥0），越界 raise ValueError 或跳过坏行并 logging.warning。
-11. 若规格/描述要求 get_trends、get_risks 等对外 API，必须在模块顶层 def 同名函数；禁止只写 _parse_* 私有 helper。
+8. **输出长度限制**：你的输出有 token 上限。代码 + 测试总计应控制在合理范围内。
+   优先实现核心逻辑，避免冗长的注释或过度拆分的辅助函数。
+   如果你的实现接近长度上限，优先保证代码完整性，可以适当精简测试。
+9. 若标注 MVP，遵守单文件行数上限，优先可运行的小实现。
+10. 解析/IO 模块：仅「无匹配内容」可 return []；文件损坏或 IO 失败必须 raise（RuntimeError/ValueError），禁止 except Exception 后静默 return []。
+11. 数值字段用集中校验（如 rank∈[1,10000]、score≥0），越界 raise ValueError 或跳过坏行并 logging.warning。
+12. 若规格/描述要求 get_trends、get_risks 等对外 API，必须在模块顶层 def 同名函数；禁止只写 _parse_* 私有 helper。
 """
 
 TESTER_SYSTEM_PROMPT = """你是一位质量保证工程师。你的任务是审查代码和测试，判断是否通过。
@@ -143,7 +146,7 @@ class ModuleAgents:
     def __init__(self, case_store: CaseStore | None = None) -> None:
         self._case_store = case_store
         self._llm = create_llm_json()
-        self._coder_llm = create_llm_json()
+        self._coder_llm = create_llm_json(max_tokens=8192)  # 代码生成需要更多 token 避免截断
 
     async def analyze(
         self, module_name: str, description: str, project_context: str = "",

@@ -45,3 +45,33 @@ def test_format_feedback_mentions_truncation():
     r = assess_module_code("def f():\n    x = (1")
     fb = format_readiness_feedback(r)
     assert "截断" in fb or "语法" in fb or "就绪" in fb
+
+
+def test_detects_incomplete_statement_and():
+    """行末以 'and' 结尾：不完整语句。"""
+    code = "def foo():\n    return x > 0 and"
+    r = assess_module_code(code)
+    assert r.ready is False
+    assert any("不完整" in i or "截断" in i for i in r.issues)
+
+
+def test_detects_ends_with_colon():
+    """行末以 ':' 结尾：if/for/def 等语句体缺失。"""
+    code = "def bar(items):\n    for item in items:\n    pass"
+    r = assess_module_code(code)
+    assert r.ready is False
+
+
+def test_detects_ends_with_comma():
+    """行末以 ',' 结尾：列表/参数未写完。"""
+    code = "def baz():\n    return [1, 2,"
+    r = assess_module_code(code)
+    assert r.ready is False
+    assert any("不完整" in i or "截断" in i for i in r.issues)
+
+
+def test_valid_code_still_passes():
+    """完整函数不应被误报。"""
+    code = "def add(a: int, b: int) -> int:\n    return a + b\n"
+    r = assess_module_code(code, "def test_add():\n    assert add(1, 2) == 3\n")
+    assert r.ready is True

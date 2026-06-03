@@ -8,6 +8,11 @@
 用法:
     python test_e2e.py
 
+环境变量:
+    TEST_E2E_BASE         服务地址（默认 http://127.0.0.1:8000）
+    TEST_E2E_HEARTBEAT    心跳输出间隔秒数（默认 15）
+    TEST_E2E_STUCK_WARN   卡住警告阈值秒数（默认 120）
+
 前置: 服务已启动且 .env 中 DEEPSEEK_API_KEY 有效。
 """
 
@@ -29,7 +34,9 @@ if sys.platform == "win32":
 
 import httpx
 
-BASE = "http://127.0.0.1:8000"
+BASE = os.getenv("TEST_E2E_BASE", "http://127.0.0.1:8000")
+HEARTBEAT_SEC = int(os.getenv("TEST_E2E_HEARTBEAT", "15"))
+STUCK_WARN_SEC = int(os.getenv("TEST_E2E_STUCK_WARN", "120"))
 RESULTS: dict[str, dict] = {}
 TERMINAL_STATUSES = frozenset(
     {"completed", "failed", "needs_review", "cancelled"}
@@ -59,10 +66,18 @@ async def _poll_project(
     max_wait: int,
     *,
     stop_at: str | None = None,
+    heartbeat_sec: int = 15,
+    stuck_warn_sec: int = 120,
 ) -> dict[str, Any]:
-    """轮询项目状态，自动处理 aligned / plan_ready 确认。"""
+    """轮询项目状态，自动处理 aligned / plan_ready 确认。
+
+    包含心跳输出和卡住警告，避免漫长的 LLM 阶段"看起来像卡死"。
+    """
     states_seen: set[str] = set()
     start = time.time()
+    last_heartbeat = start
+    last_progress_change = start
+    last_progress_sig = ""
 
     while time.time() - start < max_wait:
         await asyncio.sleep(3)
@@ -70,16 +85,58 @@ async def _poll_project(
         assert resp.status_code == 200, f"轮询失败: {resp.status_code}"
         data = resp.json()
         status = data["status"]
+        modules = data.get("modules") or []
+        mod_count = len(modules)
+
+        # 构建进度签名，用于检测是否有实际进展
+        passed = sum(1 for m in modules if m.get("status") == "passed")
+        blocked = sum(1 for m in modules if m.get("status") == "blocked")
+        progress_sig = f"{status}:{passed}:{blocked}:{mod_count}"
 
         if status not in states_seen:
             states_seen.add(status)
-            modules = data.get("modules", [])
-            mod_info = f" ({len(modules)} 模块)" if modules else ""
+            mod_info = f" ({mod_count} 模块)" if mod_count else ""
             log(section, f"状态变更: {status}{mod_info}")
+            last_progress_change = time.time()
+            last_progress_sig = progress_sig
+        elif progress_sig != last_progress_sig:
+            # 状态没变但模块进度有变化（如 passed 数增加）
+            elapsed = int(time.time() - start)
+            log(
+                section,
+                f"[{elapsed}s] 模块进度: {passed}/{mod_count} 通过"
+                + (f", {blocked} 阻塞" if blocked else ""),
+            )
+            last_progress_change = time.time()
+            last_progress_sig = progress_sig
 
         if status in ("aligned", "plan_ready"):
             log(section, f"→ 自动确认 ({status})...")
             await _auto_confirm(client, pid, status)
+
+        # ── 心跳：即使状态不变也定期输出，避免"假卡住" ──
+        now = time.time()
+        if now - last_heartbeat >= heartbeat_sec:
+            last_heartbeat = now
+            elapsed = int(time.time() - start)
+            stuck_for = int(now - last_progress_change)
+            hint = ""
+            if status in ("aligning", "planning", "executing", "integrating", "reviewing"):
+                hint = " （LLM 调用中，单模块最长约 10 分钟）"
+            elif status in ("aligned", "plan_ready"):
+                hint = " （等待确认）"
+            log(
+                section,
+                f"[{elapsed}s] ⏳ 心跳 | 状态={status}"
+                + (f" | 模块 {passed}/{mod_count} 完成" if mod_count else "")
+                + hint,
+            )
+            if stuck_for >= stuck_warn_sec:
+                log(
+                    section,
+                    f"⚠️ 同一进度已持续 {stuck_for}s，"
+                    f"若超过 {max_wait}s 将超时退出",
+                )
 
         if stop_at and status == stop_at:
             return {
@@ -229,6 +286,8 @@ async def main() -> None:
     print("╔══════════════════════════════════════════════╗")
     print("║   DevFlow CI 端到端功能测试 (v0.4)           ║")
     print("╚══════════════════════════════════════════════╝")
+    print()
+    print(f"  心跳: {HEARTBEAT_SEC}s | 卡住警告: {STUCK_WARN_SEC}s")
     print()
 
     async with httpx.AsyncClient(timeout=5) as client:
