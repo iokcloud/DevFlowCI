@@ -132,7 +132,6 @@ async def main() -> int:
         confirmed: set[str] = set()
         start = time.time()
         last_heartbeat = start
-        last_status = ""
         last_status_change = start
         last_progress_sig = ""
 

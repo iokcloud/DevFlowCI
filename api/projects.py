@@ -348,9 +348,11 @@ async def cleanup_projects(body: CleanupProjectsRequest) -> dict[str, Any]:
         projects = list(result.scalars().all())
 
     for project in projects:
-        if project.status in _ACTIVE_PROJECT_STATUSES:
-            if _running_tasks.get(project.project_id):
-                continue
+        if (
+            project.status in _ACTIVE_PROJECT_STATUSES
+            and _running_tasks.get(project.project_id)
+        ):
+            continue
         should_delete = project.status.value in target_statuses
         if not should_delete and body.include_stale:
             updated = project.updated_at
@@ -362,11 +364,10 @@ async def cleanup_projects(body: CleanupProjectsRequest) -> dict[str, Any]:
                 and updated < stale_cutoff
             ):
                 should_delete = True
-        if should_delete:
-            if await _delete_project_record(
-                project.project_id, delete_deliveries=body.delete_deliveries
-            ):
-                deleted.append(project.project_id)
+        if should_delete and await _delete_project_record(
+            project.project_id, delete_deliveries=body.delete_deliveries
+        ):
+            deleted.append(project.project_id)
 
     return {"deleted_count": len(deleted), "deleted_ids": deleted}
 

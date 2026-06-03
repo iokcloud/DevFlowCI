@@ -103,10 +103,7 @@ class TestFeedbackPreservation:
 
         # 模拟原代码中的逻辑（修复后）
         if review_passed:
-            if test_ok:
-                feedback = "should return"
-            else:
-                feedback = f"测试验证失败，请修复：\n{review_summary}"
+            feedback = "should return" if test_ok else f"测试验证失败，请修复：\n{review_summary}"
         else:
             feedback = "审查反馈：\n  - 缺少 docstring"
 

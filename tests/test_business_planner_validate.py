@@ -5,10 +5,7 @@
 
 from __future__ import annotations
 
-import pytest
-
 from agents.business_planner import BusinessPlannerAgent
-
 
 # ── 辅助工厂函数 ────────────────────────────────────────────
 

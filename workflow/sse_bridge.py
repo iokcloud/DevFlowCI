@@ -10,6 +10,7 @@ import uuid as _uuid_mod
 from datetime import datetime, timezone
 
 UTC = timezone.utc
+import contextlib
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -79,10 +80,8 @@ async def push_log(
             _log.warning("状态同步失败: %s", exc)
             pass
     queue = get_log_queue(project_id)
-    try:
-        queue.put_nowait(entry)
-    except asyncio.QueueFull:
-        pass  # 丢弃超额的日志
+    with contextlib.suppress(asyncio.QueueFull):
+        queue.put_nowait(entry)  # 丢弃超额的日志
     # ★ 持久化到数据库（异步写入，失败不影响主流程）
     try:
         from sqlalchemy import select as _sql_select
@@ -188,10 +187,8 @@ async def push_module_event(
         },
     }
     queue = get_log_queue(project_id)
-    try:
+    with contextlib.suppress(asyncio.QueueFull):
         queue.put_nowait(entry)
-    except asyncio.QueueFull:
-        pass
 
     try:
         from sqlalchemy import select as _sel
@@ -324,21 +321,21 @@ async def _sync_project_status(project_id: str, status: str) -> None:
 
         from database.db import async_session_factory as _asf
         from database.models import Project as _Project
-        from database.models import ProjectStatus as _PS
+        from database.models import ProjectStatus
 
         _status_map = {
-            "created": _PS.CREATED,
-            "aligning": _PS.ALIGNING,
-            "aligned": _PS.ALIGNED,
-            "planning": _PS.PLANNING,
-            "plan_ready": _PS.PLAN_READY,
-            "executing": _PS.EXECUTING,
-            "integrating": _PS.INTEGRATING,
-            "reviewing": _PS.REVIEWING,
-            "completed": _PS.COMPLETED,
-            "failed": _PS.FAILED,
-            "needs_review": _PS.NEEDS_REVIEW,
-            "finalized": _PS.FINALIZED,
+            "created": ProjectStatus.CREATED,
+            "aligning": ProjectStatus.ALIGNING,
+            "aligned": ProjectStatus.ALIGNED,
+            "planning": ProjectStatus.PLANNING,
+            "plan_ready": ProjectStatus.PLAN_READY,
+            "executing": ProjectStatus.EXECUTING,
+            "integrating": ProjectStatus.INTEGRATING,
+            "reviewing": ProjectStatus.REVIEWING,
+            "completed": ProjectStatus.COMPLETED,
+            "failed": ProjectStatus.FAILED,
+            "needs_review": ProjectStatus.NEEDS_REVIEW,
+            "finalized": ProjectStatus.FINALIZED,
         }
         db_status = _status_map.get(status)
         if db_status is None:

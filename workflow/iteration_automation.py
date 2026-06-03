@@ -38,9 +38,7 @@ def is_preserve_worthy_code(code: str, test_code: str = "") -> bool:
     if "def " not in c and "class " not in c:
         return False
     # 避免仅骨架函数
-    if c.count("\n") < 8 and "pass" in c and c.count("def ") <= 1:
-        return False
-    return True
+    return not (c.count("\n") < 8 and "pass" in c and c.count("def ") <= 1)
 
 
 def _normalize_issues(issues: list[str] | str | None, failure_reason: str = "") -> list[str]:

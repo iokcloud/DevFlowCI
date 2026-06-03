@@ -10,6 +10,7 @@ else
   PY=python
 fi
 
+$PY -m ruff check . || exit 1
 $PY -m py_compile main.py config.py || exit 1
 $PY -m py_compile workflow/executor.py workflow/auto_fix.py workflow/error_logger.py || exit 1
 $PY -m py_compile memory/case_store.py database/models.py || exit 1

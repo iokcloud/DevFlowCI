@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 UTC = timezone.utc
+import contextlib
 from pathlib import Path
 from typing import Any
 
@@ -732,12 +733,10 @@ def sync_on_finalize(
     acc_src = docs / "ACCEPTANCE.md"
     legacy_acc = DELIVERIES_DIR / ctx.project_id / "ACCEPTANCE.md"
     if acc_src.is_file():
-        try:
+        with contextlib.suppress(OSError):
             legacy_acc.write_text(
                 acc_src.read_text(encoding="utf-8"), encoding="utf-8"
             )
-        except OSError:
-            pass
 
 
 def copy_canonical_docs_to_version(project_id: str, project_dir: Path) -> None:
@@ -835,9 +834,7 @@ def sync_on_package(
     legacy_report = project_dir / "REVIEW_REPORT.md"
     quality = project_dir / "QUALITY_REPORT.md"
     if quality.is_file() and legacy_report.is_file():
-        try:
+        with contextlib.suppress(OSError):
             legacy_report.write_text(
                 quality.read_text(encoding="utf-8"), encoding="utf-8"
             )
-        except OSError:
-            pass

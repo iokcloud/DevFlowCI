@@ -34,9 +34,7 @@ def has_directory_context(structured_context: dict[str, Any] | None) -> bool:
     if structured_context.get("source_files"):
         return True
     summary = (structured_context.get("overall_summary") or "").strip()
-    if summary and not structured_context.get("no_documentation_found", True):
-        return True
-    return False
+    return bool(summary and not structured_context.get("no_documentation_found", True))
 
 
 def merge_sources_label(user_text: str, directory: str | None) -> str:

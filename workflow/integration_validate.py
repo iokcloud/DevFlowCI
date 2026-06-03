@@ -30,9 +30,14 @@ def _main_calls_with_no_args(main_code: str, func_name: str) -> bool:
     except SyntaxError:
         return bool(re.search(rf"\b{re.escape(func_name)}\(\s*\)", main_code))
     for node in ast.walk(tree):
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
-            if node.func.id == func_name and not node.args and not node.keywords:
-                return True
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == func_name
+            and not node.args
+            and not node.keywords
+        ):
+            return True
     return False
 
 

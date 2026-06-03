@@ -1237,7 +1237,6 @@ class WorkflowExecutor:
 
             # ── 编码 + 测试 + 审查 循环（前 MAX_REVIEW_RETRIES 次正常重试） ──
             code: ModuleCode | None = None
-            test_result: ModuleTestResult | None = None
             review: ReviewResult | None = None
             feedback = ""
             if iteration_num > 1 and (
@@ -1258,7 +1257,6 @@ class WorkflowExecutor:
                 )
             failure_reason = ""
             total_rounds = 0
-            auto_fix_attempted = False
             fix_history: list[dict[str, Any]] = []
 
             # 正常重试循环（前 3 次）
@@ -1288,7 +1286,7 @@ class WorkflowExecutor:
                     f"[{module_name}] 测试中...",
                     module_name=module_name,
                 )
-                test_result = await self._modules.test(
+                await self._modules.test(
                     module_name, code, spec
                 )
 
@@ -1494,8 +1492,11 @@ class WorkflowExecutor:
                     readiness = assess_module_code(mc, tc)
                     if mc and not readiness.ready:
                         # 代码未就绪，无法执行测试，返回失败结果
-                        from workflow.test_runner import ModuleTestResult as _MTR
-                        return _MTR(passed=False, summary="代码未就绪，无法执行测试")
+                        from workflow.test_runner import ModuleTestResult
+
+                        return ModuleTestResult(
+                            passed=False, summary="代码未就绪，无法执行测试"
+                        )
                     try:
                         return await run_module_tests(
                             module_name=mn,

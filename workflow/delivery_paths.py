@@ -14,7 +14,7 @@ def _latest_versioned_zip(base_dir: Path) -> Path | None:
 
     version_zips: list[tuple[int, Path]] = []
     for item in base_dir.iterdir():
-        if not item.is_file() or not item.name.startswith("v") or not item.suffix == ".zip":
+        if not item.is_file() or not item.name.startswith("v") or item.suffix != ".zip":
             continue
         num = item.stem[1:]
         if num.isdigit():

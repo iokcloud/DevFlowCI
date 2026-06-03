@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import shutil
 from pathlib import Path
 from typing import Any
@@ -40,10 +41,8 @@ def _path_size(path: Path) -> int:
     total = 0
     for f in path.rglob("*"):
         if f.is_file():
-            try:
+            with contextlib.suppress(OSError):
                 total += f.stat().st_size
-            except OSError:
-                pass
     return total
 
 

@@ -15,6 +15,7 @@ from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 
 UTC = timezone.utc
+import contextlib
 from typing import Any
 
 from config import (
@@ -80,10 +81,8 @@ async def push_ai_token(
     """
     entry.setdefault("timestamp", datetime.now(UTC).isoformat())
     queue = get_stream_queue(project_id)
-    try:
-        queue.put_nowait(entry)
-    except asyncio.QueueFull:
-        pass  # 丢弃超额的 token
+    with contextlib.suppress(asyncio.QueueFull):
+        queue.put_nowait(entry)  # 丢弃超额的 token
 
 
 # ── 代理名称映射 ──────────────────────────────────────────────
@@ -185,8 +184,10 @@ async def stream_deepseek_call(
 
         full_response_parts: list[str] = []
 
-        async with httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=30.0)) as client:
-            async with client.stream("POST", api_url, headers=headers, json=payload) as response:
+        async with (  # noqa: SIM117 — stream 依赖 client，无法合并为单条 with
+            httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=30.0)) as client,
+            client.stream("POST", api_url, headers=headers, json=payload) as response,
+        ):
                 if response.status_code != 200:
                     # 流式失败 → 降级为非流式
                     error_body = await response.aread()
@@ -238,14 +239,12 @@ async def stream_deepseek_call(
     except Exception as exc:
         # ── 优雅降级：回退到非流式调用 ──
         if log_callback:
-            try:
+            with contextlib.suppress(Exception):
                 await log_callback(
                     "WARN",
                     f"流式调用失败 ({exc})，降级为普通调用",
                     agent_name,
                 )
-            except Exception:
-                pass
 
         await push_ai_token(project_id, {
             "type": "notification",

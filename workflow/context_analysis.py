@@ -263,10 +263,7 @@ async def _persist_module_result(
             mod_status = ModuleStatus.FAILED
 
         spec = result_data.get("spec", {})
-        if isinstance(spec, dict):
-            spec_text = json.dumps(spec, ensure_ascii=False)
-        else:
-            spec_text = str(spec)
+        spec_text = json.dumps(spec, ensure_ascii=False) if isinstance(spec, dict) else str(spec)
 
         auto_fix = result_data.get("auto_fix_history", "[]")
         if not isinstance(auto_fix, str):

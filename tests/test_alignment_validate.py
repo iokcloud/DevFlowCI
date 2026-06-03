@@ -5,10 +5,7 @@
 
 from __future__ import annotations
 
-import pytest
-
 from agents.alignment_agent import AlignmentAgent
-
 
 # ── 辅助工厂函数 ────────────────────────────────────────────
 

@@ -60,13 +60,13 @@ def _detect_truncation(source: str) -> list[str]:
 
     # ── 检测"语法正确但逻辑不完整"的截断 ──
     # 场景：LLM 在函数体中段被截断，括号已闭合但函数未写完
-    _INCOMPLETE_ENDS = frozenset(
+    incomplete_ends = frozenset(
         (":", ",", "+", "-", "*", "/", "=", "(", "[", "{", "\\",
          "and", "or", "not", "in", "is", "as", "with", "if",
          "elif", "else", "for", "while", "try", "except", "finally",
          "yield", "return", "assert", "raise", "import", "from")
     )
-    if last_line and last_line.split()[-1].rstrip(":") in _INCOMPLETE_ENDS:
+    if last_line and last_line.split()[-1].rstrip(":") in incomplete_ends:
         issues.append("最后一行代码不完整，疑似输出被截断")
 
     # 检测 bare comment trail — 如 # ... 或 # (truncated)
