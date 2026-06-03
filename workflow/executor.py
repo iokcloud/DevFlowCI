@@ -16,20 +16,21 @@ import json
 import logging
 import os
 import traceback
+from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, AsyncIterator
+from typing import Any
 
 from langgraph.graph import StateGraph
 
+from agents.alignment_agent import AlignmentAgent
+from agents.business_planner import BusinessPlannerAgent
 from agents.integrator import (
-    GlobalReviewResult,
     GlobalReviewerAgent,
+    GlobalReviewResult,
     IntegrationResult,
     IntegratorAgent,
 )
-from agents.alignment_agent import AlignmentAgent
-from agents.business_planner import BusinessPlannerAgent
 from agents.module_agents import (
     ModuleAgents,
     ModuleCode,
@@ -38,44 +39,37 @@ from agents.module_agents import (
 )
 from agents.planner import PlannerAgent
 from agents.repair_agent import RepairAgent
-from agents.reviewer import ReviewResult, ReviewerAgent
+from agents.reviewer import ReviewerAgent, ReviewResult
 from config import (
-    MAX_CONCURRENT_MODULES,
-    MAX_REVIEW_RETRIES,
-    MAX_CODE_READINESS_RETRIES,
-    MAX_NON_MODULE_RETRIES,
-    CONTEXT_ANALYSIS_TOKEN_LIMIT,
-    CONTEXT_ANALYSIS_MAX_DEPTH,
-    DELIVERIES_DIR,
-    DEEPSEEK_API_KEY,
-    DEEPSEEK_BASE_URL,
-    DEEPSEEK_MODEL,
+    ARCHIVE_DIR_NAME,
     AUTO_FIX_ENABLED,
     AUTO_FIX_MAX_TOTAL_ROUNDS,
     AUTO_FIX_QUICK_REVIEW_MAX,
-    TEST_EXECUTION_ENABLED,
-    TEST_UNIT_TIMEOUT,
-    TEST_INTEGRATION_TIMEOUT,
-    TEST_FULL_SUITE_TIMEOUT,
-    TEST_MAX_FAILURES_BEFORE_WARN,
-    DEPENDENCY_INFERENCE_ENABLED,
-    FEEDBACK_LEARNING_ENABLED,
-    VERSIONED_DELIVERY_ENABLED,
-    MAX_VERSIONS_KEPT,
-    ARCHIVE_DIR_NAME,
     AUTOPILOT_ENABLED,
     BUSINESS_MVP_MAX_MODULES,
+    CONTEXT_ANALYSIS_MAX_DEPTH,
+    CONTEXT_ANALYSIS_TOKEN_LIMIT,
+    DEEPSEEK_API_KEY,
+    DEEPSEEK_BASE_URL,
+    DEEPSEEK_MODEL,
+    DELIVERIES_DIR,
+    DEPENDENCY_INFERENCE_ENABLED,
+    FEEDBACK_LEARNING_ENABLED,
+    MAX_CODE_READINESS_RETRIES,
+    MAX_CONCURRENT_MODULES,
+    MAX_NON_MODULE_RETRIES,
+    MAX_REVIEW_RETRIES,
+    MAX_VERSIONS_KEPT,
+    TEST_EXECUTION_ENABLED,
+    TEST_FULL_SUITE_TIMEOUT,
+    TEST_INTEGRATION_TIMEOUT,
+    TEST_MAX_FAILURES_BEFORE_WARN,
+    TEST_UNIT_TIMEOUT,
+    VERSIONED_DELIVERY_ENABLED,
 )
-from workflow.requirement_context import merge_sources_label
 from memory.case_store import CaseStore
 from memory.project_memory import ProjectMemoryStore
-from workflow.auto_fix import classify_error, search_similar_cases, FixContext
-from workflow.test_runner import (
-    run_module_tests,
-    run_integration_tests,
-    run_full_test_suite,
-    TestResult,
-)
+from workflow.auto_fix import FixContext, classify_error, search_similar_cases
 from workflow.code_readiness import assess_module_code, format_readiness_feedback
 from workflow.iteration_automation import (
     build_checklist_repair_feedback,
@@ -88,37 +82,33 @@ from workflow.iteration_automation import (
 from workflow.langgraph_def import (
     ModuleState,
     WorkflowState,
-    _after_modules,
     _after_global_review,
+    _after_modules,
     _after_review,
     build_main_graph,
     topological_sort,
 )
-from workflow.stream_relay import push_ai_token, AGENT_LABEL_MAP
+from workflow.requirement_context import merge_sources_label
+from workflow.stream_relay import AGENT_LABEL_MAP, push_ai_token
+from workflow.test_runner import (
+    TestResult,
+    run_full_test_suite,
+    run_integration_tests,
+    run_module_tests,
+)
 
 logger = logging.getLogger(__name__)
 
 
 # ── 从子模块导入（保持向下兼容的命名空间）─────────────────
 
-from workflow.sse_bridge import (
-    SNAPSHOT_DEBOUNCE_SEC,
-    _sync_project_status,
-    get_log_queue,
-    push_log,
-    push_module_event,
-    push_project_snapshot,
-    remove_log_queue,
-    stream_logs,
-    _notify_ai_stream,
-)
 from workflow.context_analysis import (
-    IGNORED_DIRS,
     DOC_EXTENSIONS,
     DOC_PRIORITY_KEYWORDS,
-    MAX_DOC_FILES,
-    MAX_DOC_CHARS_DEFAULT,
+    IGNORED_DIRS,
     MAX_DOC_CHARS_BUSINESS,
+    MAX_DOC_CHARS_DEFAULT,
+    MAX_DOC_FILES,
     _build_tree,
     _collect_doc_files,
     _detect_document_type,
@@ -137,7 +127,6 @@ from workflow.context_analysis import (
     persist_context_scan,
 )
 from workflow.fallback_alignment import _fallback_alignment
-from workflow.stub_generator import _generate_stub_code
 from workflow.mvp_utils import (
     _apply_mvp_module_cap,
     _exec_tests_passed,
@@ -147,6 +136,18 @@ from workflow.mvp_utils import (
     _resolve_mvp_module_cap,
     _sanitize_business_multi_modules,
 )
+from workflow.sse_bridge import (
+    SNAPSHOT_DEBOUNCE_SEC,
+    _notify_ai_stream,
+    _sync_project_status,
+    get_log_queue,
+    push_log,
+    push_module_event,
+    push_project_snapshot,
+    remove_log_queue,
+    stream_logs,
+)
+from workflow.stub_generator import _generate_stub_code
 
 # ── 工作流执行器 ──────────────────────────────────────────
 
@@ -374,7 +375,7 @@ class WorkflowExecutor:
                 await push_log(
                     pid, "SUCCESS",
                     f"需求对齐完成：{len(plan_a.get('plan', []))} 个建议模块"
-                    + (f"（含备选方案）" if plan_b else "")
+                    + ("（含备选方案）" if plan_b else "")
                 )
                 break
 
@@ -999,7 +1000,6 @@ class WorkflowExecutor:
     ) -> None:
         """并行执行模块（按拓扑层并行，层内并行）。"""
         modules = state["plan_modules"]
-        order = state.get("module_order", [m["module_name"] for m in modules])
         name_to_module = {m["module_name"]: m for m in modules}
 
         # 按层级分组
@@ -1014,8 +1014,8 @@ class WorkflowExecutor:
             # 层内并行
             sem = asyncio.Semaphore(MAX_CONCURRENT_MODULES)
 
-            async def run_module(module_name: str) -> None:
-                async with sem:
+            async def run_module(module_name: str, _sem: asyncio.Semaphore = sem) -> None:
+                async with _sem:
                     module = name_to_module[module_name]
                     await self._execute_single_module(
                         pid, state, module
@@ -1394,7 +1394,6 @@ class WorkflowExecutor:
             loop_result = None
             # ── 异常自愈阶段（闭环修复：查询历史 → 修复 → 验证 → 重试）──
             if AUTO_FIX_ENABLED and code is not None and review is not None:
-                auto_fix_attempted = True
                 await _update_module_status(pid, module_name, "auto_fixing")
 
                 error_text = "\n".join(review.issues) if review and review.issues else failure_reason
@@ -1867,15 +1866,15 @@ class WorkflowExecutor:
                         todo_lines.append(f"- **原定需求**: {m.get('description', '未知')}")
                         todo_lines.append(f"- **模块类型**: {m.get('type', 'unknown')}")
                         break
-                todo_lines.append(f"- **状态**: 阻塞 (blocked)")
+                todo_lines.append("- **状态**: 阻塞 (blocked)")
                 todo_lines.append(f"- **阻塞原因**: {result.get('failure_reason', '未知')}")
                 todo_lines.append("")
                 todo_lines.append("**建议手动修复步骤**:")
                 todo_lines.append(f"1. 打开文件 `{mod_name}.py`（或对应的 .html 文件）")
-                todo_lines.append(f"2. 阅读文件顶部的阻塞原因注释")
-                todo_lines.append(f"3. 根据原定需求描述完成代码实现")
-                todo_lines.append(f"4. 编写对应的单元测试")
-                todo_lines.append(f"5. 验证功能正确性")
+                todo_lines.append("2. 阅读文件顶部的阻塞原因注释")
+                todo_lines.append("3. 根据原定需求描述完成代码实现")
+                todo_lines.append("4. 编写对应的单元测试")
+                todo_lines.append("5. 验证功能正确性")
                 todo_lines.append("")
 
             todo_text = "\n".join(todo_lines)

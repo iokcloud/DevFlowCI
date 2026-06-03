@@ -22,12 +22,10 @@ def _fallback_alignment(
     """
     import re
 
-    directory = ""
     analyzed_files: list[dict[str, Any]] = []
     if structured_context:
         analyzed_files = structured_context.get("analyzed_files", [])
         # 尝试从 overall_summary 提取有用信息
-        overall = structured_context.get("overall_summary", "")
 
     # ── 场景1：有文档但无法分析 → 告知用户并提供建议 ──
     if analyzed_files:
@@ -41,7 +39,7 @@ def _fallback_alignment(
         modules = [{
             "module": "文档分析建议",
             "description": f"检测到文档类型为「{doc_type}」，建议在需求框中输入具体的开发/分析需求",
-            "reason": f"目录中文档不足以自动推导代码开发计划，需要用户提供明确指令",
+            "reason": "目录中文档不足以自动推导代码开发计划，需要用户提供明确指令",
             "type": "backend",
         }]
         return {
@@ -83,7 +81,7 @@ def _fallback_alignment(
 
     modules = []
     if keywords:
-        for i, kw in enumerate(keywords[:4]):
+        for _i, kw in enumerate(keywords[:4]):
             modules.append({
                 "module": kw.lower().replace(" ", "_")[:30],
                 "description": f"实现与「{kw}」相关的功能",

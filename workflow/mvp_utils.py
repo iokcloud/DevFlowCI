@@ -10,6 +10,7 @@ from typing import Any
 from config import BUSINESS_MVP_MAX_MODULES
 from workflow.langgraph_def import WorkflowState
 
+
 def _resolve_mvp_module_cap(state: WorkflowState) -> int | None:
     """商业 MVP 或 state 显式指定的模块上限。"""
     cap = state.get("mvp_max_modules")

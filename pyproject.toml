@@ -30,6 +30,13 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S101"]
+# 这些文件充当"门面"，重导出其他模块的函数供外部使用
+"workflow/executor.py" = ["F401"]
+"workflow/sse_bridge.py" = ["F401"]
+"main.py" = ["F401"]
+"api/delivery.py" = ["F401"]
+"api/streaming.py" = ["F401"]
+"workflow/workflow_runner.py" = ["F401"]
 
 [tool.mypy]
 python_version = "3.11"

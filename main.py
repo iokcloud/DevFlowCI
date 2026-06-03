@@ -11,12 +11,12 @@ FastAPI 主入口，提供：
 from __future__ import annotations
 
 import asyncio
-from collections import defaultdict
 import json
 import logging
 import os
 import time as _time
 import uuid
+from collections import defaultdict
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -41,15 +41,15 @@ from agents.planner import PlannerAgent
 from agents.repair_agent import RepairAgent
 from agents.reviewer import ReviewerAgent
 from config import (
-    DELIVERIES_DIR,
-    MEMORY_DIR,
-    STATIC_DIR,
-    MAX_HUMAN_FIXES,
-    PROJECT_ROOT,
+    BUSINESS_MVP_MAX_MODULES,
     DEEPSEEK_API_KEY,
     DEEPSEEK_BASE_URL,
     DEEPSEEK_MODEL,
-    BUSINESS_MVP_MAX_MODULES,
+    DELIVERIES_DIR,
+    MAX_HUMAN_FIXES,
+    MEMORY_DIR,
+    PROJECT_ROOT,
+    STATIC_DIR,
 )
 from database.db import init_db
 from database.models import (
@@ -62,11 +62,11 @@ from database.models import (
 from memory.case_store import CaseStore
 from memory.project_memory import ProjectMemoryStore
 from workflow.error_logger import (
-    write_error_log,
-    resolve_error,
+    clean_resolved_logs,
     get_error_stats,
     get_open_errors,
-    clean_resolved_logs,
+    resolve_error,
+    write_error_log,
 )
 from workflow.executor import (
     WorkflowExecutor,
@@ -76,11 +76,11 @@ from workflow.executor import (
     stream_logs,
 )
 from workflow.stream_relay import (
-    stream_ai_tokens,
-    stream_deepseek_call,
+    get_stream_queue,
     push_ai_token,
     remove_stream_queue,
-    get_stream_queue,
+    stream_ai_tokens,
+    stream_deepseek_call,
 )
 
 logger = logging.getLogger(__name__)
@@ -467,8 +467,9 @@ async def get_history(limit: int = 20) -> list[dict[str, Any]]:
 
     GET /api/projects/history?limit=20
     """
-    from database.db import async_session_factory
     from sqlalchemy import desc, select
+
+    from database.db import async_session_factory
 
     async with async_session_factory() as db:
         result = await db.execute(
@@ -548,8 +549,9 @@ async def _delete_project_impl(
     delete_deliveries: bool = True,
 ) -> dict[str, Any]:
     """删除历史项目（运行中项目会先终止）。"""
-    from database.db import async_session_factory
     from sqlalchemy import select
+
+    from database.db import async_session_factory
 
     async with async_session_factory() as db:
         result = await db.execute(
@@ -604,8 +606,9 @@ async def cleanup_projects(body: CleanupProjectsRequest) -> dict[str, Any]:
 
     POST /api/projects/cleanup
     """
-    from database.db import async_session_factory
     from sqlalchemy import select
+
+    from database.db import async_session_factory
 
     allowed = {s.value for s in ProjectStatus}
     target_statuses = {s for s in body.statuses if s in allowed}
@@ -666,8 +669,9 @@ async def update_project_display_name(
 
     PATCH /api/projects/{project_id}/display_name
     """
-    from database.db import async_session_factory
     from sqlalchemy import select
+
+    from database.db import async_session_factory
 
     name = body.display_name.strip()
     if not name:
@@ -698,9 +702,9 @@ async def iterate_project(
 
     POST /api/projects/{project_id}/iterate
     """
-    from database.db import async_session_factory
     from sqlalchemy import select
 
+    from database.db import async_session_factory
     from workflow.requirement_context import (
         append_requirement_addendum,
         build_effective_requirement,
@@ -860,9 +864,9 @@ async def append_requirement_addendum_only(
     body: RequirementAddendumRequest,
 ) -> dict[str, Any]:
     """追加需求补充记录（不立即启动迭代）。"""
-    from database.db import async_session_factory
     from sqlalchemy import select
 
+    from database.db import async_session_factory
     from workflow.requirement_context import append_requirement_addendum
 
     text = body.text.strip()
@@ -890,9 +894,9 @@ async def append_requirement_addendum_only(
 @app.post("/api/projects/{project_id}/finalize")
 async def finalize_project(project_id: str) -> dict[str, Any]:
     """标记项目定稿，不再提示继续迭代；同步 ACCEPTANCE 与平台 LEARNINGS。"""
-    from database.db import async_session_factory
     from sqlalchemy import select
 
+    from database.db import async_session_factory
     from workflow.document_sync import build_ctx_from_workflow_state, sync_on_finalize
     from workflow.state_builder import build_workflow_state_from_db
 
@@ -931,8 +935,9 @@ async def get_recent_logs(project_id: str, limit: int = 150) -> list[dict[str, A
 
     GET /api/projects/{project_id}/logs/recent?limit=150
     """
-    from database.db import async_session_factory
     from sqlalchemy import desc, select
+
+    from database.db import async_session_factory
 
     limit = max(1, min(limit, 500))
     async with async_session_factory() as db:
@@ -967,8 +972,9 @@ async def get_logs_sse(project_id: str) -> StreamingResponse:
 
     GET /api/projects/{project_id}/logs
     """
-    from database.db import async_session_factory
     from sqlalchemy import select
+
+    from database.db import async_session_factory
 
     # 检查项目是否存在
     async with async_session_factory() as db:
@@ -1007,8 +1013,9 @@ async def get_ai_stream(project_id: str) -> StreamingResponse:
     - type: "heartbeat"   — 保持连接的心跳
     - agent: 代理标识（用于前端颜色标签）
     """
-    from database.db import async_session_factory
     from sqlalchemy import select
+
+    from database.db import async_session_factory
 
     # 检查项目是否存在
     async with async_session_factory() as db:
@@ -1039,8 +1046,9 @@ async def business_tech_preview(project_id: str) -> dict[str, Any]:
 
     GET /api/projects/{project_id}/business_tech_preview
     """
-    from database.db import async_session_factory
     from sqlalchemy import select
+
+    from database.db import async_session_factory
 
     async with async_session_factory() as db:
         result = await db.execute(
@@ -1103,8 +1111,9 @@ async def confirm_plan(
     1. 项目状态为 aligned → 确认需求对齐计划，进入规划+执行阶段
     2. 项目状态为 plan_ready → 确认执行规划，进入执行阶段
     """
-    from database.db import async_session_factory
     from sqlalchemy import select
+
+    from database.db import async_session_factory
 
     async with async_session_factory() as db:
         result = await db.execute(
@@ -1157,7 +1166,6 @@ async def confirm_plan(
             _write_delivery_plan(project_id, project)
 
             # 用户选方案
-            plan_choice = body.plan_choice or "A"
             project.status = ProjectStatus.PLANNING
             await db.commit()
 
@@ -1260,8 +1268,9 @@ async def cancel_project(project_id: str) -> dict[str, Any]:
 
     POST /api/projects/{project_id}/cancel
     """
-    from database.db import async_session_factory
     from sqlalchemy import select
+
+    from database.db import async_session_factory
 
     # 取消后台任务
     task = _running_tasks.pop(project_id, None)
@@ -1388,8 +1397,8 @@ async def browse_directory(path: str = "") -> dict[str, Any]:
             "parent": parent,
             "entries": entries,
         }
-    except PermissionError:
-        raise HTTPException(403, f"没有权限访问: {path}")
+    except PermissionError as e:
+        raise HTTPException(403, f"没有权限访问: {path}") from e
 
 
 @app.get("/api/fs/quick-access")
@@ -1848,8 +1857,9 @@ async def _run_workflow_after_alignment(
 
 async def _save_state(project_id: str, final_state: WorkflowState) -> None:
     """持久化工作流状态到数据库。"""
-    from database.db import async_session_factory
     from sqlalchemy import select
+
+    from database.db import async_session_factory
 
     async with async_session_factory() as db:
         result = await db.execute(

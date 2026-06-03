@@ -10,7 +10,7 @@ from fastapi.responses import StreamingResponse
 
 from database.db import async_session_factory
 from database.models import Project
-from workflow.sse_bridge import stream_logs, remove_log_queue
+from workflow.sse_bridge import remove_log_queue, stream_logs
 from workflow.stream_relay import stream_ai_tokens
 
 router = APIRouter(prefix="/api/projects", tags=["streaming"])
@@ -23,7 +23,6 @@ async def get_logs_sse(project_id: str) -> StreamingResponse:
     """
     from sqlalchemy import select
 
-    from database.db import async_session_factory
 
     # 检查项目是否存在
     async with async_session_factory() as db:
@@ -64,7 +63,6 @@ async def get_ai_stream(project_id: str) -> StreamingResponse:
     """
     from sqlalchemy import select
 
-    from database.db import async_session_factory
 
     # 检查项目是否存在
     async with async_session_factory() as db:

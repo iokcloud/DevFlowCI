@@ -280,7 +280,6 @@ async def _save_state(project_id: str, final_state: WorkflowState) -> None:
     """持久化工作流状态到数据库。"""
     from sqlalchemy import select
 
-    from database.db import async_session_factory
 
     async with async_session_factory() as db:
         result = await db.execute(

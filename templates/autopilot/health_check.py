@@ -13,9 +13,9 @@
 
 from __future__ import annotations
 
+import logging
 import platform
 import sys
-import logging
 from datetime import datetime, timezone
 
 UTC = timezone.utc

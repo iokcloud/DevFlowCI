@@ -10,14 +10,14 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
+from sqlalchemy import select as _sel
 
+from api.models import RollbackRequest
 from config import DELIVERIES_DIR
 from database.db import async_session_factory
 from database.models import Project, ProjectStatus
-from sqlalchemy import select as _sel
-from workflow.workflow_runner import _running_tasks, _build_business_tech_requirement
 from workflow.sse_bridge import push_log
-from api.models import RollbackRequest
+from workflow.workflow_runner import _build_business_tech_requirement, _running_tasks
 
 router = APIRouter(prefix="/api/projects", tags=["delivery"])
 
@@ -29,7 +29,6 @@ async def business_tech_preview(project_id: str) -> dict[str, Any]:
     """
     from sqlalchemy import select
 
-    from database.db import async_session_factory
 
     async with async_session_factory() as db:
         result = await db.execute(
@@ -68,7 +67,6 @@ async def download_project(project_id: str) -> FileResponse:
     """
     from sqlalchemy import select
 
-    from database.db import async_session_factory
     from database.models import Project
     from workflow.delivery_paths import resolve_delivery_zip
 
@@ -118,7 +116,6 @@ async def rollback_version(project_id: str, body: RollbackRequest) -> dict[str, 
     # 复制最新版本
     latest_num = max([int(d.name[1:]) for d in base_dir.iterdir() if d.is_dir() and d.name.startswith("v") and d.name[1:].isdigit()] or [0])
     new_ver = base_dir / f"v{latest_num + 1}"
-    import shutil
     shutil.copytree(target, new_ver)
     await push_log(project_id, "INFO", f"从 {body.version} 回滚，创建新版本 v{latest_num + 1}")
     return {"status": "rolled_back", "from": body.version, "to": f"v{latest_num + 1}"}

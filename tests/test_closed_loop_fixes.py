@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 import logging
-from unittest.mock import MagicMock
 
 import pytest
 
 from workflow.closed_loop import cleanup_after_fix
 from workflow.executor import WorkflowExecutor
-
 
 # ── _build_layers 循环依赖检测 ─────────────────────────────
 

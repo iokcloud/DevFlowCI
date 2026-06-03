@@ -206,9 +206,10 @@ class CaseStore:
     async def _save_to_db(self) -> None:
         """将最新案例同步到 SQLite success_cases 表。"""
         try:
+            from sqlalchemy import select as _sel
+
             from database.db import async_session_factory
             from database.models import SuccessCase as SuccessCaseModel
-            from sqlalchemy import select as _sel
 
             async with async_session_factory() as db:
                 for case in self._cases[-10:]:  # 只同步最近 10 条

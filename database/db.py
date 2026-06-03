@@ -60,7 +60,6 @@ async def init_db() -> None:
     1. 优先执行 `alembic upgrade head`（所有 schema 变更通过迁移管理）
     2. 如果 alembic 未初始化（全新部署），回退到 create_all
     """
-    import os
     from pathlib import Path
 
     # 检查是否已有 alembic 版本表（表示之前已运行过迁移）
@@ -71,6 +70,7 @@ async def init_db() -> None:
     try:
         # 尝试运行 Alembic 迁移
         from alembic.config import Config
+
         from alembic import command
 
         alembic_ini = Path(__file__).parent.parent / "alembic.ini"

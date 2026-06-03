@@ -161,7 +161,6 @@ async def main() -> int:
                     f"模块={mod_count}/{plan_count} 通过={passed} "
                     f"进行中={coding} 阻塞={blocked} 修复={fix_total}"
                 )
-                last_status = status
                 last_status_change = time.time()
 
             progress_sig = f"{status}:{passed}:{blocked}:{coding}:{mod_count}"

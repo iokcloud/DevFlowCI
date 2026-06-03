@@ -538,7 +538,7 @@ async def closed_loop_repair(
                                 fix_history=fix_history,
                             )
                         # 审查通过但测试失败，跳出快速审查循环
-                        feedback = f"审查通过但测试验证失败"
+                        feedback = "审查通过但测试验证失败"
                         break
 
                     if qr < quick_review_max - 1:
@@ -601,7 +601,7 @@ async def closed_loop_repair(
                                 fix_history=fix_history,
                             )
                         # 审查通过但测试失败，跳出快速审查循环
-                        feedback = f"审查通过但测试验证失败"
+                        feedback = "审查通过但测试验证失败"
                         break
 
                     if qr < quick_review_max - 1:
@@ -686,7 +686,7 @@ async def closed_loop_repair(
                                 fix_history=fix_history,
                             )
                         # 审查通过但测试失败，跳出快速审查循环
-                        feedback = f"审查通过但测试验证失败"
+                        feedback = "审查通过但测试验证失败"
                         break
 
                     if qr < quick_review_max - 1:
@@ -765,7 +765,7 @@ async def closed_loop_repair(
                             )
                         # 审查通过但测试验证失败
                         fix_entry["detail"] = "历史案例修复审查通过但测试验证失败"
-                        feedback = f"历史案例参考修复审查通过但测试未通过"
+                        feedback = "历史案例参考修复审查通过但测试未通过"
                     else:
                         issues = review_result.issues if hasattr(review_result, 'issues') else review_result.get('issues', [])
                         fix_entry["detail"] = f"历史案例修复审查不通过: {', '.join(issues[:3])}"

@@ -10,16 +10,17 @@ import uuid as _uuid_mod
 from datetime import datetime, timezone
 
 UTC = timezone.utc
-from typing import Any, AsyncIterator
+from collections.abc import AsyncIterator
+from typing import Any
 
 from sqlalchemy import select as _sql_select
 
 from database.db import async_session_factory
 from database.models import ModuleStatus, ModuleTask, Project, ProjectLog
+from logging_config import get_logger
 from workflow.error_logger import write_error_log
 from workflow.project_snapshot import fetch_project_snapshot
 from workflow.stream_relay import AGENT_LABEL_MAP, push_ai_token
-from logging_config import get_logger
 
 # ── SSE 日志队列 ──────────────────────────────────────────
 
@@ -84,9 +85,10 @@ async def push_log(
         pass  # 丢弃超额的日志
     # ★ 持久化到数据库（异步写入，失败不影响主流程）
     try:
+        from sqlalchemy import select as _sql_select
+
         from database.db import async_session_factory
         from database.models import Project, ProjectLog
-        from sqlalchemy import select as _sql_select
         async with async_session_factory() as _db:
             _proj = await _db.execute(_sql_select(Project).where(Project.project_id == project_id))
             _proj_row = _proj.scalar_one_or_none()
@@ -105,8 +107,9 @@ async def push_log(
 
     # ★ ERROR / WARN 级别也写入 ErrorLog 表
         try:
-            from workflow.error_logger import write_error_log
             import uuid as _uuid_mod
+
+            from workflow.error_logger import write_error_log
             _err_trace = f"log-{_uuid_mod.uuid4().hex[:12]}"
             _err_type = "review_fail" if "审查" in message else ("test_failure" if "测试" in message else "unknown")
             await write_error_log(
@@ -191,9 +194,10 @@ async def push_module_event(
         pass
 
     try:
+        from sqlalchemy import select as _sel
+
         from database.db import async_session_factory
         from database.models import ModuleStatus, ModuleTask, Project
-        from sqlalchemy import select as _sel
 
         async with async_session_factory() as db:
             result = await db.execute(
@@ -243,7 +247,7 @@ async def stream_logs(
         try:
             entry = await asyncio.wait_for(queue.get(), timeout=30)
             yield entry
-        except asyncio.TimeoutError:
+        except TimeoutError:
             # 发送心跳
             yield {"level": "HEARTBEAT", "message": "", "timestamp": ""}
 
@@ -316,9 +320,11 @@ async def _sync_project_status(project_id: str, status: str) -> None:
         return
 
     try:
-        from database.db import async_session_factory as _asf
-        from database.models import Project as _Project, ProjectStatus as _PS
         from sqlalchemy import select as _sel
+
+        from database.db import async_session_factory as _asf
+        from database.models import Project as _Project
+        from database.models import ProjectStatus as _PS
 
         _status_map = {
             "created": _PS.CREATED,

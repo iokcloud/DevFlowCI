@@ -4,13 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter
 from pydantic import BaseModel
 
 from workflow.error_logger import (
     clean_resolved_logs,
     get_error_stats,
-    resolve_error,
 )
 
 router = APIRouter(prefix="/api/maintenance", tags=["maintenance"])
