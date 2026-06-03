@@ -56,6 +56,9 @@ success_cases.json
 memory/auto_fix_cases.json
 memory/human_fixes.json
 
+# Local scratch scripts (e.g. _tmp_db_check.py)
+_tmp_*.py
+
 # pytest
 .pytest_cache/
 htmlcov/
