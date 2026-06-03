@@ -62,8 +62,9 @@ PLANNER_SYSTEM_PROMPT = """你是一位资深软件架构师 / PM。你的任务
    单个模块应控制在 1-3 个核心函数/类。若需 4+ 个功能函数（如 CLI 工具的 add/list/delete/done），
    应拆分为多个模块（如 storage + manager + cli），避免单个模块代码过长导致输出被截断。
 7. 考虑模块的先后顺序：基础模块（数据库、认证）在前，业务模块在后。
-7. 必须确保无循环依赖。
-8. 如果在现有项目上增量开发，优先复用和修改现有模块，避免新建重复模块。
+8. **依赖目标必须存在**：dependencies 中引用的每个模块名必须在 modules 列表中有对应的 module_name。不允许引用不在 plan 中的外部模块。
+9. 必须确保无循环依赖。
+10. 如果在现有项目上增量开发，优先复用和修改现有模块，避免新建重复模块。
 """
 
 ALTERNATIVE_PLAN_PROMPT = """你是一位资深软件架构师。除了主方案外，请为同一需求生成一个**架构层面的备选方案**。
@@ -339,7 +340,11 @@ class PlannerAgent:
                 plan_b["comparison"] = comparison
                 b_errors = self.validate_plan(plan_b)
                 if b_errors:
-                    return plan_a, {}, comparison, errors
+                    logger.warning(
+                        "备选方案(B)验证失败，已丢弃（方案A不受影响）: %s",
+                        "; ".join(b_errors),
+                    )
+                    return plan_a, {}, comparison, []  # plan_a 有效，不报错
             return plan_a, plan_b, comparison, []
         except Exception as exc:
             logger.warning("备选方案解析失败: %s", exc)

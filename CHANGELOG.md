@@ -4,6 +4,28 @@
 
 ## [Unreleased]
 
+### 修复
+- **规划验证**：修复 LLM 生成模块依赖不存在的模块名导致反复验证失败的 bug（`planner.py` + `executor.py`）
+- **备选方案静默丢弃**：plan_b 验证失败时现在记录 warning 日志而非无声丢弃
+- **对齐重试**：对齐阶段失败重试时注入上轮验证错误反馈，避免盲目重试
+- **数据库会话泄漏**：`sse_bridge.py` 中 `create_task` 改为 `await`，消除 AsyncSession 未关闭警告
+- **迁移协程冲突**：`db.py` 中 `command.upgrade` 用 `asyncio.to_thread` 隔离，消除嵌套事件循环警告
+- **API 输入校验**：`CreateProjectRequest` 增加 `max_length`；`get_history` limit 钳制到 100
+
+### 新增
+- **BusinessPlannerAgent 验证**：`validate()` 方法校验 7 个维度（顶层字段、market_analysis、business_model、roadmap、risks）
+- **AlignmentAgent 依赖交叉验证**：`validate_alignment()` 检查 dependencies 引用的模块是否存在
+- **extract_json 分级日志**：截断补全策略记录 warning，全部失败记录 error
+- **ModuleAgents 错误上下文**：JSON 解析失败时附加 Agent 名 + 模块名到异常消息
+- **cancel 终态守卫**：已终态项目调用 cancel 返回 400
+
+### 测试
+- 新增 61 个单元测试：`test_planner_validate.py` (21)、`test_alignment_validate.py` (17)、`test_business_planner_validate.py` (23)
+- 全部 257 个测试通过
+
+### 文档
+- `docs/AGENT_PROMPT_TEMPLATES.md`：新增 BusinessPlannerAgent 章节 + 跨 Agent 可靠性机制
+
 ## [0.4.9] - 2026-06-01
 
 ### 新增

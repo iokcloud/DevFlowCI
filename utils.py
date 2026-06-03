@@ -73,7 +73,11 @@ def extract_json(text: str) -> dict[str, Any]:
     Raises:
         ValueError: 所有策略均无法提取有效 JSON 时抛出
     """
+    import logging
+
+    _logger = logging.getLogger(__name__)
     text = text.strip()
+    strategy_used: str | None = None
 
     # 策略 1：直接解析
     parsed = _try_parse_json_object(text)
@@ -85,6 +89,8 @@ def extract_json(text: str) -> dict[str, Any]:
     if match:
         parsed = _try_parse_json_object(match.group(1))
         if parsed is not None:
+            strategy_used = "fenced_code_block"
+            _logger.debug("extract_json: 通过 ```json 代码块提取成功")
             return parsed
 
     # 策略 2b：贪婪代码块（截断时可能没有闭合 ```）
@@ -92,6 +98,12 @@ def extract_json(text: str) -> dict[str, Any]:
     if greedy:
         parsed = _try_parse_json_object(greedy.group(1).rstrip("`"))
         if parsed is not None:
+            strategy_used = "truncated_fence"
+            _logger.warning(
+                "extract_json: LLM 输出可能被截断，通过补全策略提取 JSON。"
+                "原始内容前 300 字符：%s",
+                text[:300],
+            )
             return parsed
 
     # 策略 3：找到最外层 { }
@@ -119,13 +131,24 @@ def extract_json(text: str) -> dict[str, Any]:
                 if depth == 0:
                     parsed = _try_parse_json_object(text[brace_start : i + 1])
                     if parsed is not None:
+                        strategy_used = "brace_matching"
                         return parsed
                     break
 
         parsed = _try_parse_json_object(text[brace_start:])
         if parsed is not None:
+            strategy_used = "brace_matching_truncated"
+            _logger.warning(
+                "extract_json: LLM 输出花括号不匹配，通过截断补全策略提取。"
+                "原始内容前 300 字符：%s",
+                text[:300],
+            )
             return parsed
 
+    _logger.error(
+        "extract_json: 所有策略均失败。原始内容前 500 字符：%s",
+        text[:500],
+    )
     raise ValueError(f"无法从回复中提取有效 JSON。前 500 字符：{text[:500]}")
 
 

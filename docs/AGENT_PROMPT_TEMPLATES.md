@@ -60,6 +60,12 @@
 
 **自检机制**：`_self_check_plan()` 用关键词匹配验证每个模块是否能在文档摘要中找到依据，找不到的标记 `flagged: true`。
 
+**验证规则**（`validate_alignment()`）：
+- 字段完整性：summary / assumptions / risks / plan / questions 必须存在
+- plan 数组内每个元素必须有 module / description / reason
+- 若 module 包含 dependencies 字段，引用的每个模块名必须在 plan 中存在
+- dependencies 为非 list 类型时跳过校验（不 crash）
+
 ---
 
 ## 1. PlannerAgent（PM 规划）
@@ -82,11 +88,41 @@
 
 规则：
 - 自动判断粒度（简单1-2模块，中等2-4，复杂4-10）
+- 依赖目标必须存在：dependencies 中引用的每个模块名必须已在 modules 中定义
 - 无循环依赖
 - 增量开发时优先复用现有模块
 ```
 
 **多方案**（`ALTERNATIVE_PLAN_PROMPT`）：生成方案A/B对比，含结构化优劣势分析。
+
+**验证规则**（`validate_plan()`）：
+- 结构校验：modules 必须是非空数组，每个模块必须有 module_name / description / type
+- 依赖校验：dependencies 中引用的模块名必须在 modules 列表中存在；dependencies 必须是数组
+- 循环依赖检测：DFS 检测直接/间接循环
+- 备选方案 plan_b 验证失败时记录 warning 日志并丢弃（不影响主方案）
+
+---
+
+## 1b. BusinessPlannerAgent（商业计划分析师）
+
+**文件**：`agents/business_planner.py`
+**职责**：当文档类型被识别为 business 时激活。基于市场调研、行业分析等商业文档生成结构化商业项目计划建议书。
+
+**核心 Prompt**（`BUSINESS_PLANNER_PROMPT`）：
+
+```
+你是一位资深商业分析师与战略顾问。基于提供的市场调研文档生成商业项目计划建议书。
+
+输出格式：executive_summary / market_analysis / product_positioning / 
+          business_model / roadmap / risks_and_mitigations / recommendations
+```
+
+**验证规则**（`validate()`）：
+- 顶层字段：executive_summary / product_positioning / recommendations 非空字符串
+- market_analysis：必须是 dict，target_audience / competition / trends 均非空
+- business_model：必须是 dict，revenue_streams 是数组，cost_structure 非空
+- roadmap：至少 2 个阶段，每阶段含 phase / duration + 非空 actions / milestones
+- risks_and_mitigations：severity 必须为 high / medium / low
 
 ---
 
@@ -96,6 +132,11 @@
 **职责**：对每个模块执行 分析→编码→测试 循环。
 
 **流程**：`analyze(模块名, 描述, 上下文) → code(模块名, 规格, 反馈) → test(模块名, 代码, 规格)`
+
+**错误处理**：
+- `analyze()` 和 `test()` 中 JSON 解析失败时，异常附加模块名上下文（如 `分析师[auth] JSON 解析失败`）
+- `code()` 内置 3 次重试：每次 JSON 解析失败后将错误信息注入 prompt 重试
+- 输出使用 `.get()` 带默认值兜底，避免 LLM 缺少字段时 crash
 
 ---
 
@@ -146,6 +187,27 @@
 - [ ] 无硬编码密钥/Token
 - [ ] 公共函数有 Docstring 和类型注解
 - [ ] 外部调用有 try/except
+
+---
+
+## 跨 Agent 可靠性机制
+
+### JSON 解析（`extract_json()`）
+- **策略链**：直接解析 → ```json 代码块 → 截断补全 → 花括号匹配 → 抛出 ValueError
+- **日志分级**：策略2b/3b（截断补全）记录 `warning`；全部失败记录 `error`
+- **调用处防护**：各 Agent 在 `extract_json()` 失败时附加 Agent 名 + 模块名到异常消息
+
+### 重试反馈注入
+- **规划重试**（`executor.py:plan_only`）：验证失败时将错误列表注入 `planning_context`
+- **对齐重试**（`executor.py:execute_alignment`）：验证失败时将错误列表注入 `retry_req`
+
+### 依赖交叉验证
+- **PlannerAgent**：`dependencies` 中的模块名必须在 `modules` 列表中；DFS 循环检测
+- **AlignmentAgent**：若 `module.dependencies` 存在，引用的每个模块名必须在 `plan` 中存在
+
+### 数据库会话管理
+- 迁移使用 `asyncio.to_thread()` 隔离避免嵌套事件循环冲突
+- 状态同步使用 `await` 代替 `create_task` 防止会话泄漏
 
 ---
 
@@ -241,3 +303,4 @@
 | 2026-05-31 | 初始骨架：7 个 Agent + 5 个人类任务模板 | 项目初始化 |
 | 2026-05-31 | §A 重写：8 个 Agent 实际实现 | 规范合规修复 |
 | 2026-06-01 | 合并 §A + §B 为 docs/ 权威源 | 决策 #018 |
+| 2026-06-03 | 新增 BusinessPlannerAgent 验证规则 + 跨 Agent 可靠性机制 + 依赖交叉验证规范 | 防御加固 v2 |

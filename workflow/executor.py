@@ -285,6 +285,7 @@ class WorkflowExecutor:
         # ── 统一 Agent 调用策略：优先用对应 Agent，失败后用另一 Agent 兜底 ──
         alignment_result = None
         last_error = None
+        last_align_errors: list[str] = []
 
         for attempt in range(1, MAX_NON_MODULE_RETRIES + 1):
             try:
@@ -312,12 +313,22 @@ class WorkflowExecutor:
                 state["status"] = "aligning"
                 await _notify_ai_stream(pid, "alignment_agent", "start")
 
+                # ★ 重试时注入上轮验证反馈，帮助 LLM 自我修正
+                retry_req = state["requirement"]
+                if attempt > 1:
+                    retry_req = (
+                        retry_req
+                        + "\n\n【上次对齐验证失败，请修正】\n"
+                        + "\n".join(f"- {e}" for e in last_align_errors)
+                    )
+
                 plan_a, plan_b, errors = await self._alignment_agent.analyze_alternatives(
-                    state["requirement"],
+                    retry_req,
                     project_context=state.get("project_context", ""),
                     project_memory_text=project_memory_text,
                 )
                 if errors:
+                    last_align_errors = errors
                     await push_log(pid, "ERROR", f"对齐分析验证失败: {'; '.join(errors)}")
                     if attempt < MAX_NON_MODULE_RETRIES:
                         continue
@@ -484,6 +495,13 @@ class WorkflowExecutor:
                 if errors:
                     await push_log(pid, "ERROR", f"规划验证失败: {'; '.join(errors)}")
                     if attempt < MAX_NON_MODULE_RETRIES:
+                        # ★ 将验证错误作为反馈注入上下文，帮助 LLM 在下一次修正
+                        feedback = (
+                            "\n\n## ⚠️ 上次规划验证失败，请修正以下问题\n"
+                            + "\n".join(f"- {e}" for e in errors)
+                            + "\n\n请确保所有 dependencies 中引用的模块名都在 modules 列表中存在。"
+                        )
+                        planning_context = (planning_context or "") + feedback
                         continue
                     state["errors"].extend(errors)
                     state["status"] = "needs_review"

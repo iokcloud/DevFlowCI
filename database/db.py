@@ -60,6 +60,7 @@ async def init_db() -> None:
     1. 优先执行 `alembic upgrade head`（所有 schema 变更通过迁移管理）
     2. 如果 alembic 未初始化（全新部署），回退到 create_all
     """
+    import asyncio
     from pathlib import Path
 
     # 检查是否已有 alembic 版本表（表示之前已运行过迁移）
@@ -76,7 +77,10 @@ async def init_db() -> None:
         alembic_ini = Path(__file__).parent.parent / "alembic.ini"
         if alembic_ini.exists() and db_path.exists():
             alembic_cfg = Config(str(alembic_ini))
-            command.upgrade(alembic_cfg, "head")
+            # ★ command.upgrade() 内部会调用 asyncio.run()，而 init_db() 本身
+            #    在异步上下文中运行，直接调用会导致嵌套事件循环冲突。
+            #    通过 to_thread 放到独立线程执行，避免冲突。
+            await asyncio.to_thread(command.upgrade, alembic_cfg, "head")
             return
     except Exception as exc:
         logger.warning(

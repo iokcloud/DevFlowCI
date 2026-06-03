@@ -183,7 +183,12 @@ class ModuleAgents:
 
         response = await self._llm.ainvoke(prompt)
         raw_text = response.content if hasattr(response, "content") else str(response)
-        data = extract_json(raw_text)
+        try:
+            data = extract_json(raw_text)
+        except ValueError as exc:
+            raise ValueError(
+                f"分析师[{module_name}] JSON 解析失败: {exc}"
+            ) from exc
 
         return ModuleSpec(
             module_name=data.get("module_name", module_name),
@@ -296,7 +301,12 @@ API 端点：{', '.join(spec.api_endpoints)}
 
         response = await self._llm.ainvoke(prompt)
         raw_text = response.content if hasattr(response, "content") else str(response)
-        data = extract_json(raw_text)
+        try:
+            data = extract_json(raw_text)
+        except ValueError as exc:
+            raise ValueError(
+                f"测试者[{module_name}] JSON 解析失败: {exc}"
+            ) from exc
 
         return ModuleTestResult(
             module_name=data.get("module_name", module_name),

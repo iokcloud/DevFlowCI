@@ -140,6 +140,94 @@ class BusinessPlannerAgent:
         return result
 
     @staticmethod
+    def validate(result: dict[str, Any]) -> list[str]:
+        """验证商业计划结果的结构完整性。
+
+        Returns:
+            错误信息列表。空列表表示通过。
+        """
+        import logging
+
+        _logger = logging.getLogger(__name__)
+        errors: list[str] = []
+
+        # ── 顶层必填字段 ──
+        required_str_fields = [
+            ("executive_summary", "执行摘要"),
+            ("product_positioning", "产品定位"),
+            ("recommendations", "建议"),
+        ]
+        for key, label in required_str_fields:
+            val = result.get(key, "")
+            if not val or not isinstance(val, str) or not val.strip():
+                errors.append(f"缺少或无效的 '{key}'（{label}）")
+
+        # ── market_analysis ──
+        ma = result.get("market_analysis")
+        if not isinstance(ma, dict):
+            errors.append("'market_analysis' 必须是对象")
+        else:
+            for sub in ["target_audience", "competition", "trends"]:
+                sv = ma.get(sub, "")
+                if not sv or not isinstance(sv, str) or not sv.strip():
+                    errors.append(f"market_analysis 缺少或无效的 '{sub}'")
+
+        # ── business_model ──
+        bm = result.get("business_model")
+        if not isinstance(bm, dict):
+            errors.append("'business_model' 必须是对象")
+        else:
+            if not isinstance(bm.get("revenue_streams"), list):
+                errors.append("business_model.revenue_streams 必须是数组")
+            for sub in ["cost_structure"]:
+                sv = bm.get(sub, "")
+                if not sv or not isinstance(sv, str) or not sv.strip():
+                    errors.append(f"business_model 缺少或无效的 '{sub}'")
+
+        # ── roadmap ──
+        roadmap = result.get("roadmap")
+        if not isinstance(roadmap, list):
+            errors.append("'roadmap' 必须是数组")
+        elif len(roadmap) < 2:
+            errors.append(
+                f"roadmap 至少需要 2 个阶段，当前只有 {len(roadmap)} 个"
+            )
+        else:
+            for i, phase in enumerate(roadmap):
+                if not isinstance(phase, dict):
+                    errors.append(f"roadmap #{i}: 必须是对象")
+                    continue
+                for f in ["phase", "duration"]:
+                    if not phase.get(f):
+                        errors.append(f"roadmap #{i}: 缺少 '{f}'")
+                for f in ["actions", "milestones"]:
+                    if not isinstance(phase.get(f), list) or len(phase[f]) == 0:
+                        errors.append(f"roadmap #{i}: '{f}' 必须是非空数组")
+
+        # ── risks_and_mitigations ──
+        risks = result.get("risks_and_mitigations")
+        if not isinstance(risks, list):
+            errors.append("'risks_and_mitigations' 必须是数组")
+        else:
+            for i, r in enumerate(risks):
+                if not isinstance(r, dict):
+                    errors.append(f"risks_and_mitigations #{i}: 必须是对象")
+                    continue
+                if not r.get("risk"):
+                    errors.append(f"risks_and_mitigations #{i}: 缺少 'risk'")
+                sev = r.get("severity", "")
+                if sev not in ("high", "medium", "low"):
+                    errors.append(
+                        f"risks_and_mitigations #{i}: "
+                        f"severity 必须是 high/medium/low，当前为 '{sev}'"
+                    )
+
+        if errors:
+            _logger.warning("商业计划验证失败: %s", "; ".join(errors))
+
+        return errors
+
+    @staticmethod
     def format_for_display(result: dict[str, Any]) -> dict[str, Any]:
         """格式化为前端展示结构。"""
         return {

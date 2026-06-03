@@ -1283,6 +1283,8 @@ async def cancel_project(project_id: str) -> dict[str, Any]:
         result = await db.execute(select(Project).where(Project.project_id == project_id))
         project = result.scalar_one_or_none()
         if project:
+            if project.status in {ProjectStatus.COMPLETED, ProjectStatus.CANCELLED, ProjectStatus.FINALIZED}:
+                raise HTTPException(400, f"项目已处于终态 {project.status.value}，无需取消")
             project.status = ProjectStatus.CANCELLED
             await db.commit()
 

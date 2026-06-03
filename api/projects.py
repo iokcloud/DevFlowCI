@@ -197,7 +197,7 @@ async def get_history(limit: int = 20) -> list[dict[str, Any]]:
     """
     from sqlalchemy import desc, select
 
-
+    limit = max(1, min(limit, 100))  # 防止超大请求压垮数据库
     async with async_session_factory() as db:
         result = await db.execute(
             select(Project)

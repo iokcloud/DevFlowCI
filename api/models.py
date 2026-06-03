@@ -29,8 +29,8 @@ _ACTIVE_PROJECT_STATUSES = {
 
 class CreateProjectRequest(BaseModel):
     """创建项目请求体。"""
-    requirement: str = Field(default="", description="用户自然语言需求")
-    directory: str | None = Field(default=None, description="项目目录绝对路径（选填）")
+    requirement: str = Field(default="", max_length=5000, description="用户自然语言需求")
+    directory: str | None = Field(default=None, max_length=500, description="项目目录绝对路径（选填）")
     mode: str = Field(default="auto", description="计划类型: auto/technical/business")
     force_new: bool = Field(default=False, description="强制创建新项目，跳过去重（重试场景使用）")
 

@@ -74,9 +74,9 @@ async def push_log(
         entry["state_event"] = state_event
         # 状态事件实时同步到 DB，避免 API 长时间显示旧状态
         try:
-            asyncio.create_task(_sync_project_status(project_id, state_event))
+            await _sync_project_status(project_id, state_event)
         except Exception as exc:
-            _log.warning("状态同步任务创建失败: %s", exc)
+            _log.warning("状态同步失败: %s", exc)
             pass
     queue = get_log_queue(project_id)
     try:

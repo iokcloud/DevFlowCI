@@ -66,6 +66,7 @@ ALIGNMENT_SYSTEM_PROMPT = """你是一位严格的需求分析师。你的任务
 2. 用户需求非空时，必须输出含 plan 数组的正常 JSON，禁止 insufficient_info。
 3. 用户需求为空且目录文档也不足 → 必须返回 insufficient_info。
 4. plan 可以为空数组仅当「已分析完毕且确实无需修改」；与 insufficient_info 不同。
+5. 若 module 中包含 dependencies 字段，其中的每个模块名必须对应 plan 中某个 module 的 module 字段值。不允许引用不在 plan 中的外部模块。
 """
 
 # ── 构建 Prompt ──────────────────────────────────────────
@@ -214,10 +215,25 @@ class AlignmentAgent:
             if not isinstance(plan, list):
                 errors.append("'plan' 必须是数组")
             else:
+                # 收集所有模块名（使用 module 字段）
+                module_names: set[str] = set()
+                for m in plan:
+                    mod_name = m.get("module", "")
+                    if mod_name:
+                        module_names.add(mod_name)
                 for i, m in enumerate(plan):
                     for f in ["module", "description", "reason"]:
                         if not m.get(f):
                             errors.append(f"plan #{i}: 缺少 '{f}'")
+                    # ── 依赖交叉校验（若存在 dependencies 字段）──
+                    deps = m.get("dependencies", [])
+                    if isinstance(deps, list):
+                        for dep in deps:
+                            if isinstance(dep, str) and dep not in module_names:
+                                errors.append(
+                                    f"plan #{i} ('{m.get('module', '?')}'): "
+                                    f"依赖不存在: '{dep}'"
+                                )
         return errors
 
     async def analyze(
