@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.4.10] - 2026-06-03
+
 ### 修复
 - **规划验证**：修复 LLM 生成模块依赖不存在的模块名导致反复验证失败的 bug（`planner.py` + `executor.py`）
 - **备选方案静默丢弃**：plan_b 验证失败时现在记录 warning 日志而非无声丢弃
@@ -205,4 +207,5 @@
 
 [0.4.1]: https://github.com/iokcloud/DevFlowCI/releases/tag/v0.4.1
 [0.4.0]: https://github.com/iokcloud/DevFlowCI/releases/tag/v0.4.0
+[0.4.10]: https://github.com/iokcloud/DevFlowCI/releases/tag/v0.4.10
 [0.2.0]: https://github.com/iokcloud/DevFlowCI/releases/tag/v0.2.0

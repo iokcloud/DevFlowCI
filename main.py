@@ -139,7 +139,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="DevFlow CI",
     description="自动化多 Agent 编码工作流系统 — 项目型开发伙伴",
-    version="0.4.2",
+    version="0.4.10",
     lifespan=lifespan,
 )
 
@@ -1329,7 +1329,7 @@ async def health() -> dict[str, str]:
     return {
         "status": "ok",
         "cases_count": str(_case_store.count),
-        "api_version": "0.4.9",
+        "api_version": "0.4.10",
     }
 
 

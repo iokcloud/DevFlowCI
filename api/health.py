@@ -23,5 +23,5 @@ async def health() -> dict[str, str]:
     return {
         "status": "ok",
         "cases_count": str(_case_store.count if _case_store else 0),
-        "api_version": "0.4.9",
+        "api_version": "0.4.10",
     }
