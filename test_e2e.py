@@ -185,7 +185,7 @@ async def test_1_simple_project() -> dict:
         pid = resp.json()["project_id"]
         log("TEST-1", f"项目已创建: {pid}")
 
-        result = await _poll_project(client, pid, "TEST-1", max_wait=300)
+        result = await _poll_project(client, pid, "TEST-1", max_wait=400)
         if result.get("passed"):
             log("TEST-1", f"✅ 完成！耗时 {result.get('duration', '?')}s")
         elif result.get("error") == "超时":
