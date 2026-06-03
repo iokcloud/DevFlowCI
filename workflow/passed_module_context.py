@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import contextlib
 import re
 from pathlib import Path
 from typing import Any
@@ -112,12 +113,10 @@ def extract_public_api_summary(code: str) -> str:
 
     lines: list[str] = []
     for node in tree.body:
-        if isinstance(node, (ast.Import, ast.ImportFrom)):
-            try:
+        if isinstance(node, ast.Import | ast.ImportFrom):
+            with contextlib.suppress(Exception):
                 lines.append(ast.unparse(node))
-            except Exception:
-                pass
-        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
             if node.name.startswith("_") and node.name != "__init__":
                 continue
             prefix = "async " if isinstance(node, ast.AsyncFunctionDef) else ""
@@ -127,7 +126,7 @@ def extract_public_api_summary(code: str) -> str:
                 continue
             lines.append(f"class {node.name}:")
             for item in node.body:
-                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                if isinstance(item, ast.FunctionDef | ast.AsyncFunctionDef):
                     if item.name.startswith("_") and item.name != "__init__":
                         continue
                     lines.append(f"    def {item.name}({_format_func_args(item)}) ...")

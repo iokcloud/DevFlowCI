@@ -80,7 +80,6 @@ from workflow.iteration_automation import (
     merge_requirements_text,
     resolve_blocked_artifacts,
 )
-from workflow.passed_module_context import build_passed_module_context
 from workflow.langgraph_def import (
     ModuleState,
     WorkflowState,
@@ -90,6 +89,7 @@ from workflow.langgraph_def import (
     build_main_graph,
     topological_sort,
 )
+from workflow.passed_module_context import build_passed_module_context
 from workflow.requirement_context import merge_sources_label
 from workflow.stream_relay import AGENT_LABEL_MAP, push_ai_token
 from workflow.test_runner import (

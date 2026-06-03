@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import re
@@ -345,10 +346,8 @@ def build_integration_module_files(
             continue
         path = Path(directory) / fname
         if path.is_file():
-            try:
+            with contextlib.suppress(OSError):
                 files[fname] = path.read_text(encoding="utf-8", errors="replace")
-            except OSError:
-                pass
     return files
 
 

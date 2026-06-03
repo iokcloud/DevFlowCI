@@ -1,11 +1,10 @@
 """ModuleAgents 两轮编码辅助逻辑测试。"""
 
-from workflow.code_readiness import assess_module_code
-
 from agents.module_agents import (
     _extract_prior_code_from_feedback,
     _regen_scope,
 )
+from workflow.code_readiness import assess_module_code
 
 
 def test_assess_code_only_skips_empty_test():
