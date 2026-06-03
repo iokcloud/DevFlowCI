@@ -166,6 +166,17 @@ class ProjectMemoryStore:
 
         self.save(memory)
 
+    def get_passed_module_names(self, directory: str) -> set[str]:
+        """返回该项目目录下状态为 passed 的模块名集合（增量规划外部依赖）。"""
+        memory = self.load(directory)
+        if not memory:
+            return set()
+        return {
+            m["module_name"]
+            for m in memory.modules
+            if m.get("module_name") and m.get("status") == "passed"
+        }
+
     def format_for_prompt(self, directory: str) -> str:
         """将项目记忆格式化为可注入 PM Agent Prompt 的文本。
 
@@ -186,6 +197,7 @@ class ProjectMemoryStore:
             f"- 最近需求: {memory.last_requirement[:200]}",
         ]
 
+        passed_names: list[str] = []
         if memory.modules:
             lines.append("\n### 现有模块及其状态")
             for m in memory.modules:
@@ -193,10 +205,20 @@ class ProjectMemoryStore:
                     "passed": "✅", "blocked": "⚠️", "failed": "❌",
                     "pending": "⏳", "error": "💥",
                 }.get(m.get("status", ""), "❓")
+                name = m.get("module_name", "?")
+                if m.get("status") == "passed" and name != "?":
+                    passed_names.append(name)
                 lines.append(
-                    f"  {status_icon} [{m.get('module_name', '?')}] "
+                    f"  {status_icon} [{name}] "
                     f"{m.get('description', '')[:80]} "
                     f"(状态: {m.get('status', 'unknown')})"
+                )
+            if passed_names:
+                lines.append(
+                    "\n### 已通过模块（增量开发）\n"
+                    f"- 以下模块已交付，**不要**列入本次 `modules`，"
+                    f"**不要**写入 `dependencies`：{', '.join(passed_names)}\n"
+                    "- 新模块若需复用其能力，在 `description` 中说明「复用已有 xxx」即可。"
                 )
 
         if memory.last_plan:

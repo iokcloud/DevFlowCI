@@ -62,9 +62,9 @@ PLANNER_SYSTEM_PROMPT = """你是一位资深软件架构师 / PM。你的任务
    单个模块应控制在 1-3 个核心函数/类。若需 4+ 个功能函数（如 CLI 工具的 add/list/delete/done），
    应拆分为多个模块（如 storage + manager + cli），避免单个模块代码过长导致输出被截断。
 7. 考虑模块的先后顺序：基础模块（数据库、认证）在前，业务模块在后。
-8. **依赖目标必须存在**：dependencies 中引用的每个模块名必须在 modules 列表中有对应的 module_name。不允许引用不在 plan 中的外部模块。
+8. **依赖目标必须存在**：dependencies 中引用的每个 module_name 必须出现在本次 `modules` 数组中。禁止引用历史已通过、但未列入本次 plan 的模块名。
 9. 必须确保无循环依赖。
-10. 如果在现有项目上增量开发，优先复用和修改现有模块，避免新建重复模块。
+10. 如果在现有项目上增量开发，优先复用和修改现有模块，避免新建重复模块；已通过模块不必重复规划，也不必写入 dependencies。
 """
 
 ALTERNATIVE_PLAN_PROMPT = """你是一位资深软件架构师。除了主方案外，请为同一需求生成一个**架构层面的备选方案**。
@@ -201,8 +201,46 @@ class PlannerAgent:
         return "\n\n".join(parts)
 
     @staticmethod
+    def sanitize_plan_dependencies(
+        plan: dict[str, Any],
+        external_modules: set[str] | None = None,
+    ) -> list[str]:
+        """移除无效依赖（既不在 plan 也不在已通过模块集合中）。
+
+        Returns:
+            被移除的依赖描述列表，供日志记录。
+        """
+        external = external_modules or set()
+        modules = plan.get("modules", [])
+        if not isinstance(modules, list):
+            return []
+        names = {
+            m.get("module_name", "")
+            for m in modules
+            if m.get("module_name")
+        }
+        removed: list[str] = []
+        for m in modules:
+            deps = m.get("dependencies", [])
+            if not isinstance(deps, list):
+                continue
+            kept: list[str] = []
+            for dep in deps:
+                if not isinstance(dep, str) or not dep:
+                    continue
+                if dep in names or dep in external:
+                    kept.append(dep)
+                else:
+                    removed.append(
+                        f"{m.get('module_name', '?')} → {dep}"
+                    )
+            m["dependencies"] = kept
+        return removed
+
+    @staticmethod
     def validate_plan(
         plan: dict[str, Any],
+        external_modules: set[str] | None = None,
     ) -> list[str]:
         """验证规划结果。
 
@@ -250,11 +288,12 @@ class PlannerAgent:
             if cycle:
                 errors.append(f"检测到循环依赖: {' -> '.join(cycle)}")
 
-        # 依赖目标存在性
+        # 依赖目标存在性（本次 plan 或项目已通过模块）
+        external = external_modules or set()
         for m in modules:
             name = m.get("module_name", "")
             for dep in m.get("dependencies", []):
-                if dep not in names:
+                if dep not in names and dep not in external:
                     errors.append(
                         f"模块 '{name}' 依赖不存在: '{dep}'"
                     )
@@ -306,13 +345,20 @@ class PlannerAgent:
         requirement: str,
         project_context: str = "",
         project_memory_text: str = "",
+        external_modules: set[str] | None = None,
     ) -> tuple[dict[str, Any], list[str]]:
         """执行规划（单方案，兼容旧接口）。"""
         prompt = self._build_prompt(requirement, project_context, project_memory_text)
         response = await self._llm.ainvoke(prompt)
         raw_text: str = response.content if hasattr(response, "content") else str(response)
         plan = extract_json(raw_text)
-        errors = self.validate_plan(plan)
+        removed = self.sanitize_plan_dependencies(plan, external_modules)
+        if removed:
+            logger.info(
+                "规划依赖已自动修剪（无效引用）: %s",
+                "; ".join(removed),
+            )
+        errors = self.validate_plan(plan, external_modules)
         return plan, errors
 
     async def plan_alternatives(
@@ -320,9 +366,15 @@ class PlannerAgent:
         requirement: str,
         project_context: str = "",
         project_memory_text: str = "",
+        external_modules: set[str] | None = None,
     ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], list[str]]:
         """生成方案A/B对比。Returns: (plan_a, plan_b, comparison, errors)"""
-        plan_a, errors = await self.plan(requirement, project_context, project_memory_text)
+        plan_a, errors = await self.plan(
+            requirement,
+            project_context,
+            project_memory_text,
+            external_modules=external_modules,
+        )
         if errors:
             return plan_a, {}, {}, errors
         alt_prompt = self._build_prompt(requirement, project_context, project_memory_text)
@@ -338,7 +390,8 @@ class PlannerAgent:
             plan_a["comparison"] = comparison
             if plan_b:
                 plan_b["comparison"] = comparison
-                b_errors = self.validate_plan(plan_b)
+                self.sanitize_plan_dependencies(plan_b, external_modules)
+                b_errors = self.validate_plan(plan_b, external_modules)
                 if b_errors:
                     logger.warning(
                         "备选方案(B)验证失败，已丢弃（方案A不受影响）: %s",

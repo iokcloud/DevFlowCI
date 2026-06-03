@@ -150,6 +150,54 @@ class TestDependencyValidation:
         ])
         assert PlannerAgent.validate_plan(plan) == []
 
+    def test_dependency_on_passed_external_module(self) -> None:
+        """增量开发：依赖项目已通过模块时不应报错。"""
+        plan = _make_plan([
+            _make_module(
+                "web_app",
+                dependencies=["llm_client", "prompt_service"],
+            ),
+        ])
+        external = {"llm_client", "prompt_service"}
+        assert PlannerAgent.validate_plan(plan, external) == []
+
+    def test_external_module_does_not_fix_unknown_dep(self) -> None:
+        plan = _make_plan([
+            _make_module("api", dependencies=["llm_client", "ghost"]),
+        ])
+        errors = PlannerAgent.validate_plan(plan, {"llm_client"})
+        assert len(errors) == 1
+        assert "ghost" in errors[0]
+
+
+# ── 依赖自动修剪 ───────────────────────────────────────────
+
+class TestSanitizePlanDependencies:
+    def test_strips_unknown_keeps_plan_and_external(self) -> None:
+        plan = _make_plan([
+            _make_module("auth"),
+            _make_module(
+                "api",
+                dependencies=["auth", "llm_client", "ghost"],
+            ),
+        ])
+        removed = PlannerAgent.sanitize_plan_dependencies(
+            plan, {"llm_client"}
+        )
+        assert "ghost" in removed[0]
+        assert plan["modules"][1]["dependencies"] == ["auth", "llm_client"]
+
+    def test_sanitize_then_validate_passes(self) -> None:
+        plan = _make_plan([
+            _make_module(
+                "polish_api",
+                dependencies=["llm_client", "prompt_service"],
+            ),
+        ])
+        external = {"llm_client", "prompt_service"}
+        PlannerAgent.sanitize_plan_dependencies(plan, external)
+        assert PlannerAgent.validate_plan(plan, external) == []
+
 
 # ── 循环依赖 ───────────────────────────────────────────────
 

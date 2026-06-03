@@ -452,9 +452,13 @@ class WorkflowExecutor:
 
         directory = state.get("directory", "")
         project_memory_text = ""
+        external_modules: set[str] = set()
         if directory:
             try:
                 project_memory_text = self._project_memory.format_for_prompt(directory)
+                external_modules = self._project_memory.get_passed_module_names(
+                    directory
+                )
             except Exception as exc:
                 logger.warning("规划时无法读取项目记忆: %s", exc)
                 pass
@@ -491,6 +495,7 @@ class WorkflowExecutor:
                     state["requirement"],
                     project_context=planning_context,
                     project_memory_text=project_memory_text,
+                    external_modules=external_modules,
                 )
                 if errors:
                     await push_log(pid, "ERROR", f"规划验证失败: {'; '.join(errors)}")
@@ -499,8 +504,14 @@ class WorkflowExecutor:
                         feedback = (
                             "\n\n## ⚠️ 上次规划验证失败，请修正以下问题\n"
                             + "\n".join(f"- {e}" for e in errors)
-                            + "\n\n请确保所有 dependencies 中引用的模块名都在 modules 列表中存在。"
+                            + "\n\n请确保 dependencies 仅引用本次 modules 中的 module_name。"
                         )
+                        if external_modules:
+                            feedback += (
+                                "\n已通过模块（勿写入 dependencies，"
+                                f"勿重复列入 modules）："
+                                f"{', '.join(sorted(external_modules))}"
+                            )
                         planning_context = (planning_context or "") + feedback
                         continue
                     state["errors"].extend(errors)
