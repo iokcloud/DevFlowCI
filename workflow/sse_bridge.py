@@ -309,6 +309,12 @@ async def _sync_project_status(project_id: str, status: str) -> None:
     解决 plan_only / execute_from_plan 等阶段完成后，
     API 仍显示旧状态的问题。
     """
+    # 测试 teardown 阶段可能没有 event loop，直接返回
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return
+
     try:
         from database.db import async_session_factory as _asf
         from database.models import Project as _Project, ProjectStatus as _PS
