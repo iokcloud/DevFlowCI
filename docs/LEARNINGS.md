@@ -12,8 +12,8 @@
 | 类别 | 计数 | 最新条目 |
 |------|------|----------|
 | Bug — 代码错误 | 0 | — |
-| 设计缺陷 | 11 | 教训 #012 |
-| 协作流程 | 1 | 教训 #002 |
+| 设计缺陷 | 12 | 教训 #014 |
+| 协作流程 | 3 | 教训 #015 |
 | 安全 | 0 | — |
 | 性能 | 0 | — |
 
@@ -275,3 +275,43 @@
   - 商业 MVP 优先单核心模块或可集成最小集
   - 每轮迭代必须写需求补充并更新 DELIVERY_PLAN
 - **Prompt 改进**：否
+
+---
+
+### 教训 #014：增量规划勿把「已通过模块」仅写在 dependencies 里
+
+- **日期**：2026-06-03
+- **来源**：AiEDU 迭代 — `web_app` / `polish_api` 规划验证失败（`llm_client`、`prompt_service` 不在本次 plan）
+- **类别**：设计缺陷
+- **现象**：PM 将项目记忆里已 `passed` 的模块写入新 plan 的 `dependencies`，但 `modules` 未包含它们，`validate_plan` 报「依赖不存在」，重试 3 次仍失败。
+- **原因**：
+  1. 校验只认当前 `modules` 列表，未考虑 `project_memory` 中已交付模块。
+  2. Prompt 虽要求依赖必须在 plan 内，LLM 在增量场景仍常引用历史模块名。
+- **解决方案**：
+  1. `ProjectMemoryStore.get_passed_module_names()` + `validate_plan(..., external_modules=)` 认可已通过模块。
+  2. `sanitize_plan_dependencies()` 修剪既不在 plan、也不在 passed 集合的无效依赖。
+  3. `format_for_prompt()` / `PLANNER_SYSTEM_PROMPT` 明确：已通过模块勿列入 `modules` 与 `dependencies`，在 `description` 写「复用已有 xxx」。
+- **预防措施**：
+  - 迭代前确认目标目录的 `memory/project_memory/<hash>.json` 中 passed 列表与预期一致。
+  - 新增规划校验单测时覆盖 `external_modules` 场景（见 `test_planner_validate.py`）。
+- **Prompt 改进**：是 — `agents/planner.py` 规则 8/10、`memory/project_memory.py` 已通过模块说明
+
+---
+
+### 教训 #015：本地 ruff 版本须与 CI（requirements-dev.txt）一致
+
+- **日期**：2026-06-03
+- **来源**：GitHub Actions run #49 失败 — 本地 `ruff check` 全绿但 CI 16s 内 exit 1
+- **类别**：协作流程
+- **现象**：`19d2d0a` 提交后 Actions 仍红；Annotations 仅「exit code 1」，实为 **Lint (ruff)** 步骤失败。
+- **原因**：
+  1. CI 安装 `ruff==0.11.0`（`requirements-dev.txt`），开发者全局/venv 可能是 0.15+，规则集与自动修复不一致。
+  2. pre-commit 长期只跑 pytest，未跑 `ruff check .`，提交前无法发现 CI 专有问题。
+- **解决方案**：
+  1. 用 **venv** 执行与 CI 相同版本：`venv\Scripts\python.exe -m pip install ruff==0.11.0` 后 `ruff check .`。
+  2. 修复 0.11 下剩余项（如 `db.py` I001、`UP038` 等）并推送 `7469f66`。
+  3. pre-commit 增加 `ruff check .`；Actions 升级 `checkout@v6` / `setup-python@v6` 消除 Node 20 弃用警告。
+- **预防措施**：
+  - 提交前习惯：`pip install -r requirements-dev.txt` 后用 **同一解释器** 跑 `ruff check .` 与 `pytest`。
+  - 若升级 ruff 版本，须同时改 `requirements-dev.txt` 并在 PR 说明规则差异。
+- **Prompt 改进**：否 — 见 `docs/DEVELOPMENT.md`、`.github/workflows/ci.yml`

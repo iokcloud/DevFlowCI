@@ -328,6 +328,15 @@ class RequestQueue {
 
                 lastError = err;
 
+                // 4xx 为客户端/状态错误（如重复 confirm_plan），重试无意义
+                if (
+                    typeof lastError.status === "number"
+                    && lastError.status >= 400
+                    && lastError.status < 500
+                ) {
+                    break;
+                }
+
                 // 判断是否应该重试
                 if (isLastAttempt) {
                     break;

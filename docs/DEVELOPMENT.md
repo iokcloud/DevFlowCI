@@ -118,6 +118,9 @@ python test_e2e.py
 ### 单元测试（无需启动服务）
 
 ```bash
+# Lint（与 CI 一致，版本见 requirements-dev.txt 的 ruff==0.11.0）
+python -m ruff check .
+
 # 快测（与 PR CI 一致）
 pytest tests/ -m "not integration" -v
 
@@ -125,7 +128,7 @@ pytest tests/ -m "not integration" -v
 pytest tests/ -v
 ```
 
-CI 策略：PR 只跑 `-m "not integration"`；合并到 `master` 后额外跑集成测试。见 `.github/workflows/ci.yml`。
+CI 策略：push/PR 先 `ruff check .`，再单元测试；合并到 `master` 后额外跑集成测试。见 `.github/workflows/ci.yml`。
 
 集成测试（mock LLM，无需 API Key，8 项）：
 

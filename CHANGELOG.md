@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### 修复
+- **增量规划**：已通过模块可作为 `external_modules` 通过依赖校验；无效依赖自动修剪（`8157976`）
+- **CI**：对齐 ruff 0.11.3 项 lint；pre-commit 增加 ruff；Actions 升级 checkout/setup-python v6（`7469f66`）
+
 ## [0.4.10] - 2026-06-03
 
 ### 修复

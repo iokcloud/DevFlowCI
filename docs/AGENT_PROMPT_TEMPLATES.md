@@ -202,8 +202,12 @@
 - **对齐重试**（`executor.py:execute_alignment`）：验证失败时将错误列表注入 `retry_req`
 
 ### 依赖交叉验证
-- **PlannerAgent**：`dependencies` 中的模块名必须在 `modules` 列表中；DFS 循环检测
+- **PlannerAgent**：`dependencies` 中的模块名必须在 `modules` 列表中，或属于 `project_memory` 中 **passed** 的 `external_modules`；DFS 循环检测
 - **AlignmentAgent**：若 `module.dependencies` 存在，引用的每个模块名必须在 `plan` 中存在
+
+### CI 与本地 lint 对齐
+- CI 使用 `requirements-dev.txt` 中的 **ruff 版本**（当前 `0.11.0`），勿仅用全局新版 ruff 判断「可提交」
+- pre-commit 已含 `ruff check .`；提交前也可用 `venv\Scripts\python.exe -m ruff check .`
 
 ### 数据库会话管理
 - 迁移使用 `asyncio.to_thread()` 隔离避免嵌套事件循环冲突

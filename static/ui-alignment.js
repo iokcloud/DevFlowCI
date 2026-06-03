@@ -174,6 +174,10 @@ function updateAlignmentModule(index) {
 }
 
 async function confirmAlignment(projectId) {
+    if (currentProjectData?.project_id === projectId && currentProjectData.status !== "aligned") {
+        showToast("当前不在待确认对齐状态，请刷新页面", "info");
+        return;
+    }
     let modules = null;
     if (window._alignmentData && window._alignmentData.plan) {
         modules = window._alignmentData.plan
@@ -191,11 +195,8 @@ async function confirmAlignment(projectId) {
     try {
         const body = { modules: modules || undefined, plan_choice: "A" };
         if (userNotes) body.user_notes = userNotes;
-        await requestQueue.fetch(API_BASE + "/api/projects/" + projectId + "/confirm_plan", {
-            method: "POST",
-            body: JSON.stringify(body),
-            priority: RequestPriority.CRITICAL,
-        });
+        const result = await postConfirmPlan(projectId, body, "aligned");
+        if (!result) return;
         document.getElementById("alignment-panel").classList.add("hidden");
         els.progressText.textContent = "需求已确认，进入规划阶段...";
     } catch (e) {
@@ -370,14 +371,18 @@ function formatFailureReason(text) {
 }
 
 async function confirmBusinessPlan(projectId) {
+    if (currentProjectData?.project_id === projectId && currentProjectData.status !== "aligned") {
+        showToast("当前不在待确认商业计划状态，请刷新页面", "info");
+        return;
+    }
     const btn = document.querySelector(".biz-actions .btn-primary");
     if (btn) { btn.disabled = true; btn.textContent = "⏳ 确认中..."; }
     try {
-        const result = await requestQueue.fetch(API_BASE + "/api/projects/" + projectId + "/confirm_plan", {
-            method: "POST",
-            body: JSON.stringify({ plan_choice: "A" }),
-            priority: RequestPriority.CRITICAL,
-        });
+        const result = await postConfirmPlan(projectId, { plan_choice: "A" }, "aligned");
+        if (!result) {
+            if (btn) { btn.disabled = false; btn.textContent = "✅ 确认计划"; }
+            return;
+        }
         // ★ 商业计划已确认，进入技术规划→开发管线，继续监控后续阶段
         const panel = document.getElementById("alignment-panel");
         _fadeOutPanel(panel, () => {

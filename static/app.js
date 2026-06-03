@@ -645,13 +645,13 @@ async function handleWorkflowAction(actionId, project) {
         case "wait":
             break;
         case "continue_align":
-            await confirmAlignment(pid);
+            if (project.status === "aligned") await confirmAlignment(pid);
             break;
         case "continue_business":
-            await confirmBusinessPlan(pid);
+            if (project.status === "aligned") await confirmBusinessPlan(pid);
             break;
         case "continue_plan":
-            await autoConfirmPlan(pid);
+            if (project.status === "plan_ready") await autoConfirmPlan(pid);
             break;
         case "cancel":
             await cancelProject();
@@ -1085,15 +1085,38 @@ function statusToPhase(status) {
     return map[status] || "align";
 }
 
+/**
+ * 确认对齐/规划（去重 + 状态守卫，避免重复 400）
+ * @param {string} projectId
+ * @param {object} body POST body
+ * @param {"aligned"|"plan_ready"} expectedStatus 调用方期望的当前状态
+ */
+async function postConfirmPlan(projectId, body, expectedStatus) {
+    if (
+        currentProjectData?.project_id === projectId
+        && expectedStatus
+        && currentProjectData.status !== expectedStatus
+    ) {
+        console.info(
+            `[confirm_plan] 跳过：当前状态为 ${currentProjectData.status}，需 ${expectedStatus}`
+        );
+        return null;
+    }
+    return requestQueue.fetch(API_BASE + "/api/projects/" + projectId + "/confirm_plan", {
+        method: "POST",
+        body: JSON.stringify(body || {}),
+        priority: RequestPriority.CRITICAL,
+        dedupKey: "confirm-plan-" + projectId,
+        retries: 0,
+    });
+}
+
 async function autoConfirmPlan(projectId) {
     try {
-        await requestQueue.fetch(API_BASE + "/api/projects/" + projectId + "/confirm_plan", {
-            method: "POST",
-            body: JSON.stringify({}),
-            priority: RequestPriority.CRITICAL,
-        });
+        await postConfirmPlan(projectId, {}, "plan_ready");
     } catch (e) {
-        // ignore
+        if (e.status === 400) return;
+        console.warn("[autoConfirmPlan]", e.message);
     }
 }
 
