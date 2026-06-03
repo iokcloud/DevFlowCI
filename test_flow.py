@@ -98,7 +98,7 @@ async def main() -> int:
     print(f"  超时: {TIMEOUT_S}s | 轮询: {POLL_SEC}s | 心跳: {HEARTBEAT_SEC}s")
     print("=" * 60)
 
-    async with httpx.AsyncClient(timeout=httpx.Timeout(600, connect=10)) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(30, connect=10)) as client:
         # 健康检查
         try:
             health = await client.get(f"{BASE}/api/health")

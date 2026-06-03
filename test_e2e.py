@@ -171,7 +171,7 @@ async def test_1_simple_project() -> dict:
     log("TEST-1", "=" * 50)
     log("TEST-1", "提交简单需求：写一个 is_palindrome(s) 回文判断函数")
 
-    async with httpx.AsyncClient(timeout=httpx.Timeout(600, connect=10)) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(30, connect=10)) as client:
         resp = await client.post(
             f"{BASE}/api/projects",
             json={
@@ -200,7 +200,7 @@ async def test_2_complex_project() -> dict:
     log("TEST-2", "=" * 50)
     log("TEST-2", "提交大型项目需求：命令行待办事项工具")
 
-    async with httpx.AsyncClient(timeout=httpx.Timeout(600, connect=10)) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(30, connect=10)) as client:
         resp = await client.post(
             f"{BASE}/api/projects",
             json={
