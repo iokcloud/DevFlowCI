@@ -70,6 +70,7 @@ from config import (
 from memory.case_store import CaseStore
 from memory.project_memory import ProjectMemoryStore
 from workflow.auto_fix import FixContext, classify_error, search_similar_cases
+from workflow.code_quick_fix import apply_code_quick_fixes, repair_truncation_shell
 from workflow.code_readiness import assess_module_code, format_readiness_feedback
 from workflow.iteration_automation import (
     build_checklist_repair_feedback,
@@ -79,6 +80,7 @@ from workflow.iteration_automation import (
     merge_requirements_text,
     resolve_blocked_artifacts,
 )
+from workflow.passed_module_context import build_passed_module_context
 from workflow.langgraph_def import (
     ModuleState,
     WorkflowState,
@@ -1128,6 +1130,7 @@ class WorkflowExecutor:
         mvp_mode: bool,
         *,
         attempt_label: str = "",
+        reuse_modules_context: str = "",
     ) -> tuple[ModuleCode | None, bool, str]:
         """编码并在就绪校验通过前不进入测试/审查，避免截断代码误报。"""
         current_feedback = feedback
@@ -1143,10 +1146,35 @@ class WorkflowExecutor:
                 module_name=module_name,
             )
             last_code = await self._modules.code(
-                module_name, spec, current_feedback, mvp_mode=mvp_mode,
+                module_name,
+                spec,
+                current_feedback,
+                mvp_mode=mvp_mode,
+                reuse_modules_context=reuse_modules_context,
             )
+            fixed_code, fixed_test, shell_notes = repair_truncation_shell(
+                last_code.code, last_code.test_code,
+            )
+            fixed_code, quick_notes = apply_code_quick_fixes(
+                fixed_code,
+                description=spec.summary,
+                spec_summary=spec.summary,
+            )
+            if shell_notes or quick_notes:
+                last_code = ModuleCode(
+                    module_name=last_code.module_name,
+                    code=fixed_code,
+                    test_code=fixed_test,
+                    language=last_code.language,
+                )
+                for note in shell_notes + quick_notes:
+                    await push_log(pid, "INFO", f"[{module_name}] {note}", module_name=module_name)
             readiness = assess_module_code(
-                last_code.code, last_code.test_code, language=last_code.language,
+                last_code.code,
+                last_code.test_code,
+                language=last_code.language,
+                module_description=spec.summary,
+                spec_summary=spec.summary,
             )
             if readiness.ready:
                 return last_code, True, current_feedback
@@ -1205,6 +1233,29 @@ class WorkflowExecutor:
                 + "\n样例数据路径：" + ", ".join(fixture_paths)
             ).strip()
 
+        directory = state.get("directory", "") or ""
+        memory_passed: set[str] = set()
+        if directory:
+            try:
+                memory_passed = self._project_memory.get_passed_module_names(
+                    directory
+                )
+            except Exception:
+                memory_passed = set()
+        reuse_ctx = build_passed_module_context(
+            current_module=module,
+            directory=directory,
+            module_results=state.get("module_results") or {},
+            memory_passed=memory_passed,
+        )
+        if reuse_ctx:
+            await push_log(
+                pid,
+                "INFO",
+                f"[{module_name}] 已注入已通过模块 API 上下文",
+                module_name=module_name,
+            )
+
         mvp_cap = _resolve_mvp_module_cap(state)
         mvp_mode = mvp_cap == 1
         alignment = state.get("alignment_result") or {}
@@ -1232,7 +1283,11 @@ class WorkflowExecutor:
                 module_name=module_name,
             )
             spec = await self._modules.analyze(
-                module_name, description, context, mvp_mode=compact_mvp,
+                module_name,
+                description,
+                context,
+                mvp_mode=compact_mvp,
+                reuse_modules_context=reuse_ctx,
             )
 
             # ── 编码 + 测试 + 审查 循环（前 MAX_REVIEW_RETRIES 次正常重试） ──
@@ -1264,8 +1319,13 @@ class WorkflowExecutor:
                 total_rounds += 1
 
                 code, code_ready, readiness_feedback_text = await self._generate_code_until_ready(
-                    pid, module_name, spec, feedback, compact_mvp,
+                    pid,
+                    module_name,
+                    spec,
+                    feedback,
+                    compact_mvp,
                     attempt_label=f"审查轮次 {retry + 1}",
+                    reuse_modules_context=reuse_ctx,
                 )
                 if not code_ready or code is None:
                     failure_reason = readiness_feedback_text or "编码产出未就绪"
@@ -1458,8 +1518,13 @@ class WorkflowExecutor:
                             error_handling=spec_obj.get("error_handling", ""),
                         )
                     coded, ready, fb_out = await self._generate_code_until_ready(
-                        pid, mn, spec_obj, fb, compact_mvp,
+                        pid,
+                        mn,
+                        spec_obj,
+                        fb,
+                        compact_mvp,
                         attempt_label="自愈编码",
+                        reuse_modules_context=reuse_ctx,
                     )
                     if not ready:
                         raise ValueError(fb_out or "编码产出未就绪")

@@ -298,6 +298,18 @@
 
 ---
 
+### 教训 #016：增量模块编码须注入已通过依赖的 API 摘要
+
+- **日期**：2026-06-03
+- **来源**：AiEDU 增量 — `web_app` 依赖 `llm_client` 但编码 Prompt 无真实接口
+- **类别**：设计缺陷
+- **现象**：新模块 import 失败或臆造与已通过模块不一致的函数签名。
+- **解决方案**：`workflow/passed_module_context.py` 从 `module_results` / 项目目录 `{name}.py` / `project_memory` 解析依赖，AST 提取公共 API 注入 analyze 与 code。
+- **预防措施**：规划 `dependencies` 写真实模块名；已通过模块保持 `passed` 且落盘到目标目录。
+- **Prompt 改进**：否 — 由工作流自动注入
+
+---
+
 ### 教训 #015：本地 ruff 版本须与 CI（requirements-dev.txt）一致
 
 - **日期**：2026-06-03

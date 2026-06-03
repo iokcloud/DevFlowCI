@@ -69,6 +69,23 @@ MAX_REVIEW_RETRIES: int = 3        # 单模块审查重试上限（auto_fix 兜�
 MAX_CODE_READINESS_RETRIES: int = int(
     os.getenv("MAX_CODE_READINESS_RETRIES", "2")
 )  # 每轮审查前编码就绪校验重试（截断/语法未通过时不进入测试/审查）
+# 编码分两轮：先 code 后 test_code，降低单次 JSON 截断概率
+CODE_GEN_TWO_PHASE: bool = os.getenv("CODE_GEN_TWO_PHASE", "true").lower() in (
+    "1", "true", "yes", "on",
+)
+CODER_CODE_MAX_TOKENS: int = int(os.getenv("CODER_CODE_MAX_TOKENS", "8192"))
+CODER_TEST_MAX_TOKENS: int = int(os.getenv("CODER_TEST_MAX_TOKENS", "4096"))
+CODE_GEN_PHASE_RETRIES: int = int(os.getenv("CODE_GEN_PHASE_RETRIES", "2"))
+# 编码时注入已通过模块的 API 摘要（module_results / 项目目录 .py）
+PASSED_MODULE_CONTEXT_ENABLED: bool = os.getenv(
+    "PASSED_MODULE_CONTEXT_ENABLED", "true"
+).lower() in ("1", "true", "yes", "on")
+PASSED_MODULE_CONTEXT_MAX_MODULES: int = int(
+    os.getenv("PASSED_MODULE_CONTEXT_MAX_MODULES", "6")
+)
+PASSED_MODULE_API_MAX_CHARS: int = int(
+    os.getenv("PASSED_MODULE_API_MAX_CHARS", "2500")
+)
 MAX_CONCURRENT_MODULES: int = 4    # 并行模块数上限
 TASK_TIMEOUT_SECONDS: int = 600    # 单个模块超时（10分钟）
 MAX_NON_MODULE_RETRIES: int = 3    # 非模块阶段（规划/集成/全局审查）最大重试次数

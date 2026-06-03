@@ -75,3 +75,29 @@ def test_valid_code_still_passes():
     code = "def add(a: int, b: int) -> int:\n    return a + b\n"
     r = assess_module_code(code, "def test_add():\n    assert add(1, 2) == 3\n")
     assert r.ready is True
+
+
+def test_rejects_test_eof_inside_block_incomplete_assert():
+    test = "def test_process():\n    assert response.json() =="
+    r = assess_module_code("def app():\n    return 1\n", test)
+    assert r.ready is False
+    assert r.phase == "truncated"
+    assert any("assert" in i or "截断" in i for i in r.issues)
+
+
+def test_rejects_test_eof_inside_block_dangling_and():
+    test = "def test_x():\n    assert ok and"
+    r = assess_module_code("def app():\n    return 1\n", test)
+    assert r.ready is False
+    assert any("截断" in i or "不完整" in i for i in r.issues)
+
+
+def test_repair_truncation_shell_closes_parens():
+    from workflow.code_quick_fix import repair_truncation_shell
+
+    code = "def f():\n    return (1 + 2"
+    fixed, _, notes = repair_truncation_shell(code, "")
+    assert fixed.endswith(")\n") or fixed.rstrip().endswith(")")
+    assert notes
+    r = assess_module_code(fixed, "def test_f():\n    assert f() == 3\n")
+    assert r.ready is True

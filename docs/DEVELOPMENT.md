@@ -31,6 +31,12 @@ cp .env.example .env
 | 变量 | 推荐值 | 说明 |
 |------|--------|------|
 | `DEEPSEEK_MODEL` | `deepseek-v4-pro` | 仓库与 CI 默认；全链路 Pro |
+| `CODE_GEN_TWO_PHASE` | `true` | 编码先产出 code 再单独产出 test_code |
+| `CODER_CODE_MAX_TOKENS` | `8192` | 模块代码轮 token 上限 |
+| `CODER_TEST_MAX_TOKENS` | `4096` | 测试代码轮 token 上限 |
+| `PASSED_MODULE_CONTEXT_ENABLED` | `true` | 编码前注入已通过依赖模块 API 摘要 |
+| `PASSED_MODULE_CONTEXT_MAX_MODULES` | `6` | 单次最多注入模块数 |
+| `PASSED_MODULE_API_MAX_CHARS` | `2500` | 每个模块 API 摘要字符上限 |
 | `DEEPSEEK_REASONING_EFFORT` | `high` | 规划 / 商业 / 对齐类 Agent |
 | `DEEPSEEK_BASE_URL` | `https://api.deepseek.com/v1` | DevFlow 服务端用 OpenAI 兼容端点 |
 

@@ -117,6 +117,43 @@ def ensure_public_apis(
     return out, notes
 
 
+def _close_bracket_imbalance(source: str) -> tuple[str, bool]:
+    """仅补全末尾缺失的 ) ] }（不修补 assert/语句逻辑）。"""
+    if not source.strip():
+        return source, False
+    stack: list[str] = []
+    for ch in source:
+        if ch in "([{":
+            stack.append(ch)
+        elif ch in ")]}":
+            if not stack:
+                continue
+            open_ch = stack[-1]
+            expected = ")]}"["([{".index(open_ch)]
+            if ch != expected:
+                return source, False
+            stack.pop()
+    if not stack:
+        return source, False
+    closers = {"(": ")", "[": "]", "{": "}"}
+    suffix = "".join(closers[c] for c in reversed(stack))
+    return source.rstrip() + suffix + "\n", True
+
+
+def repair_truncation_shell(code: str, test_code: str = "") -> tuple[str, str, list[str]]:
+    """对模块/测试代码做确定性截断壳修复（括号闭合）。"""
+    notes: list[str] = []
+    out_code, fixed_c = _close_bracket_imbalance(code)
+    if fixed_c:
+        notes.append("已自动补全模块代码末尾缺失的闭合括号")
+    out_test = test_code
+    if test_code and test_code.strip():
+        out_test, fixed_t = _close_bracket_imbalance(test_code)
+        if fixed_t:
+            notes.append("已自动补全测试代码末尾缺失的闭合括号")
+    return out_code, out_test, notes
+
+
 def apply_code_quick_fixes(
     code: str,
     *,

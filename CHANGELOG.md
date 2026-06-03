@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### 新增
+- **编码两轮生成**（`CODE_GEN_TWO_PHASE=true`）：先 `code` 后 `test_code`，各阶段独立就绪校验，降低 JSON 截断（`agents/module_agents.py`）
+- **已通过模块 API 注入**：按 `dependencies` / 项目记忆 / `module_results` 与目录 `{name}.py` 提取公共签名，注入 analyze 与 code（`workflow/passed_module_context.py`）
+
 ### 修复
 - **增量规划**：已通过模块可作为 `external_modules` 通过依赖校验；无效依赖自动修剪（`8157976`）
 - **CI**：对齐 ruff 0.11.3 项 lint；pre-commit 增加 ruff；Actions 升级 checkout/setup-python v6（`7469f66`）

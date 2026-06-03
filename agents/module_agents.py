@@ -1,315 +1,1210 @@
 """模块级 Agent — 分析师、编码者、测试者。
 
+
+
 单个模块的执行流程：分析 → 编码 → 测试
+
 三个 Agent 通过结构化 Schema 传递数据。
+
 """
+
+
 
 from __future__ import annotations
 
+
+
+import logging
+
+import re
+
 from dataclasses import dataclass, field
 
+
+
+from config import (
+
+    CODE_GEN_PHASE_RETRIES,
+
+    CODE_GEN_TWO_PHASE,
+
+    CODER_CODE_MAX_TOKENS,
+
+    CODER_TEST_MAX_TOKENS,
+
+)
+
 from memory.case_store import CaseStore
+
 from utils import create_llm_json, extract_json
 
+from workflow.code_readiness import assess_module_code, format_readiness_feedback
+
+
+
+logger = logging.getLogger(__name__)
+
+
+
 MVP_SCOPE_NOTE = """
+
 ## MVP 范围（必须遵守）
+
 - 单文件代码不超过 120 行，测试代码不超过 80 行
+
 - 只实现一个核心函数或一个核心类，不要 SQLite/CLI/多子系统
+
 - 规格若过大，只取第一项能力实现
+
 """
+
 
 
 # ── 数据结构 ──────────────────────────────────────────────
 
+
+
 @dataclass
+
 class ModuleSpec:
+
     """模块分析规格。"""
+
     module_name: str
+
     summary: str                    # 功能概述
+
     api_endpoints: list[str] = field(default_factory=list)
+
     data_models: list[str] = field(default_factory=list)
+
     logic_flow: str = ""            # 核心逻辑流程
+
     error_handling: str = ""        # 异常场景
 
 
+
+
+
 @dataclass
+
 class ModuleCode:
+
     """编码产出。"""
+
     module_name: str
+
     code: str                       # 完整代码
+
     test_code: str                  # 测试代码
+
     language: str = "python"
 
 
+
+
+
 @dataclass
+
 class ModuleTestResult:
+
     """测试结果。"""
+
     module_name: str
+
     passed: bool
+
     details: str
+
+
+
 
 
 # ── 系统提示词 ────────────────────────────────────────────
 
+
+
 ANALYST_SYSTEM_PROMPT = """你是一位资深系统分析师。你的任务是为一个软件模块编写详细的功能规格。
+
+
 
 ## 输出格式（严格 JSON）
 
+
+
 ```json
+
 {
+
   "module_name": "模块名",
+
   "summary": "一句话概述模块功能",
+
   "api_endpoints": ["GET /api/users - 获取用户列表", "POST /api/users - 创建用户"],
+
   "data_models": ["User: {id, username, email, password_hash, created_at}"],
+
   "logic_flow": "1. 接收请求 → 2. 校验输入 → 3. 业务处理 → 4. 返回响应",
+
   "error_handling": "用户名重复 → 409; 输入无效 → 422; 数据库异常 → 500"
+
 }
+
 ```
 
+
+
 ## 规则
+
 1. 输出必须是有效 JSON，不要添加额外说明。
+
 2. api_endpoints 按 HTTP 方法 + 路径 + 简要描述列出。
+
 3. data_models 描述每个模型的关键字段和类型。
+
 4. 考虑鉴权、输入校验、错误处理。
+
 """
+
+
 
 CODER_SYSTEM_PROMPT = """你是一位高级全栈开发工程师。你的任务是根据功能规格编写生产级代码。
 
+
+
 ## 输出格式（严格 JSON）
 
+
+
 ```json
+
 {
+
   "module_name": "auth",
+
   "language": "python",
+
   "file_name": "auth.py",
+
   "code": "完整的 Python 代码，包含类型注解、docstring、异常处理",
+
   "test_code": "完整的 pytest 测试代码，覆盖核心逻辑和异常路径"
+
 }
+
 ```
 
+
+
 ## 代码要求
+
 1. 代码必须包含完整的 import 语句。
+
 2. 所有公共函数/类必须包含 type hints 和 docstring，但 docstring 应简明扼要（1-2 行即可）。
+
 3. 异常处理必须覆盖外部调用。
+
 4. 不得包含硬编码的密钥或密码。
+
 5. 不要使用 print()，使用 logging 模块。
-6. test_code 使用 pytest 风格，覆盖至少 2 个正常路径和 1 个异常路径。
+
+6. test_code 使用 pytest 风格：最多 4 个 `test_` 函数，每个函数体必须完整（禁止写到 assert 一半）；覆盖 1–2 个主路径即可，异常路径 0–1 个，避免过长导致截断。
+
 7. 输出必须是有效 JSON。代码内部的双引号用反斜杠转义。
+
 8. **输出长度限制**：你的输出有 token 上限。代码 + 测试总计应控制在合理范围内。
+
    优先实现核心逻辑，避免冗长的注释或过度拆分的辅助函数。
+
    如果你的实现接近长度上限，优先保证代码完整性，可以适当精简测试。
+
 9. 若标注 MVP，遵守单文件行数上限，优先可运行的小实现。
+
 10. 解析/IO 模块：仅「无匹配内容」可 return []；文件损坏或 IO 失败必须 raise（RuntimeError/ValueError），禁止 except Exception 后静默 return []。
+
 11. 数值字段用集中校验（如 rank∈[1,10000]、score≥0），越界 raise ValueError 或跳过坏行并 logging.warning。
+
 12. 若规格/描述要求 get_trends、get_risks 等对外 API，必须在模块顶层 def 同名函数；禁止只写 _parse_* 私有 helper。
+
 """
+
+
+
+CODER_CODE_ONLY_PROMPT = """你是一位高级 Python 开发工程师。本轮**只输出模块实现代码**，不要写 pytest。
+
+
+
+## 输出格式（严格 JSON）
+
+
+
+```json
+
+{
+
+  "module_name": "auth",
+
+  "language": "python",
+
+  "file_name": "auth.py",
+
+  "code": "完整可运行的 Python 模块源码"
+
+}
+
+```
+
+
+
+## 要求
+
+1. 只包含 `module_name`、`language`、`file_name`、`code` 四个字段，**不要** `test_code` 字段。
+
+2. `code` 必须语法完整、可单独 import/compile，含 import、type hints、简明 docstring。
+
+3. 不得硬编码密钥；不用 print()，用 logging。
+
+4. 若标注 MVP：单文件 ≤120 行，一个核心能力即可。
+
+5. 若要求 get_trends / get_risks 等，必须在模块顶层 def 同名函数。
+
+6. JSON 内双引号须转义；优先保证 `code` 完整，避免截断。
+
+"""
+
+
+
+CODER_TEST_ONLY_PROMPT = """你是一位高级 Python 测试工程师。模块实现代码**已给定**，你只输出 pytest。
+
+
+
+## 输出格式（严格 JSON）
+
+
+
+```json
+
+{
+
+  "module_name": "auth",
+
+  "test_code": "完整 pytest 代码，可导入并测试给定模块"
+
+}
+
+```
+
+
+
+## 要求
+
+1. 只包含 `module_name` 与 `test_code`，**不要**重复输出 `code`。
+
+2. 最多 4 个 `test_` 函数；每个函数体必须写完整（禁止 assert 写到一半）。
+
+3. 覆盖 1–2 个主路径 + 0–1 个异常路径即可，不要冗长。
+
+4. 测试须能 import 给定模块中的公共 API（按模块文件名与同目录导入习惯编写）。
+
+5. JSON 内双引号须转义；优先保证 `test_code` 完整闭合。
+
+"""
+
+
 
 TESTER_SYSTEM_PROMPT = """你是一位质量保证工程师。你的任务是审查代码和测试，判断是否通过。
 
+
+
 ## 输出格式（严格 JSON）
 
+
+
 ```json
+
 {
+
   "module_name": "auth",
+
   "passed": true,
+
   "issues": [],
+
   "summary": "代码质量良好，测试覆盖充分"
+
 }
+
 ```
+
+
 
 或
 
+
+
 ```json
+
 {
+
   "module_name": "auth",
+
   "passed": false,
+
   "issues": [
+
     "缺少输入校验：用户名未检查是否为空",
+
     "异常处理不完整：数据库连接失败未处理"
+
   ],
+
   "summary": "发现 2 个问题需要修复"
+
 }
+
 ```
 
+
+
 ## 规则
+
 1. 只有当代码确实满足所有要求时，passed 才为 true。
+
 2. issues 列表每项一句话，具体指出问题。
+
 3. 审查重点：类型注解、异常处理、安全性、测试覆盖。
+
 """
 
 
+
+_PRIOR_CODE_BLOCK = re.compile(
+
+    r"【在下列现有代码基础上修改[^】]*】\s*```python\s*\n(.*?)```",
+
+    re.DOTALL,
+
+)
+
+
+
+
+
+def _extract_prior_code_from_feedback(feedback: str) -> str:
+
+    m = _PRIOR_CODE_BLOCK.search(feedback)
+
+    if not m:
+
+        return ""
+
+    body = m.group(1).strip()
+
+    if body.endswith("# ... (truncated)"):
+
+        body = body[: body.rfind("# ... (truncated)")].strip()
+
+    return body
+
+
+
+
+
+def _regen_scope(feedback: str) -> str:
+
+    """返回 both | code | test — 重试时决定重生成范围。"""
+
+    if not (feedback or "").strip():
+
+        return "both"
+
+    if "截断" in feedback or "SyntaxError" in feedback or "模块代码" in feedback:
+
+        return "both"
+
+    fb = feedback.lower()
+
+    test_hit = any(
+
+        x in fb for x in ("测试:", "test_", "pytest", "test_code", "assert")
+
+    )
+
+    code_hit = any(
+
+        x in feedback or x in fb
+
+        for x in ("模块代码", "SyntaxError", "截断", "编码产出", "缺少对外接口")
+
+    )
+
+    if test_hit and not code_hit:
+
+        return "test"
+
+    return "both"
+
+
+
+
+
+
+
+def _format_reuse_modules_block(reuse_modules_context: str) -> str:
+    """已通过模块 API 摘要块。"""
+    block = (reuse_modules_context or "").strip()
+    if not block:
+        return ""
+    return f"\n\n{block}\n"
+
 # ── Agent 类 ──────────────────────────────────────────────
 
+
+
 class ModuleAgents:
+
     """模块级 Agent 组合：分析师 → 编码者 → 测试者。"""
 
+
+
     def __init__(self, case_store: CaseStore | None = None) -> None:
+
+        """初始化模块 Agent。"""
+
         self._case_store = case_store
+
         self._llm = create_llm_json()
-        self._coder_llm = create_llm_json(max_tokens=8192)  # 代码生成需要更多 token 避免截断
+
+        self._coder_llm = create_llm_json(max_tokens=CODER_CODE_MAX_TOKENS)
+
+        self._test_llm = create_llm_json(max_tokens=CODER_TEST_MAX_TOKENS)
+
+
 
     async def analyze(
+
         self, module_name: str, description: str, project_context: str = "",
+
         mvp_mode: bool = False,
+
+        reuse_modules_context: str = "",
+
     ) -> ModuleSpec:
-        """分析师：生成模块功能规格。
 
-        Args:
-            module_name: 模块名称
-            description: PM 对该模块的描述
-            project_context: 项目全局上下文（如全局需求、技术栈）
+        """分析师：生成模块功能规格。"""
 
-        Returns:
-            ModuleSpec 结构化规格
-        """
         few_shot = ""
+
         if self._case_store and self._case_store.count > 0:
+
             few_shot = self._case_store.format_few_shot(description, top_k=1)
+
+
 
         mvp_section = MVP_SCOPE_NOTE if mvp_mode else ""
 
+
+
         prompt = f"""{ANALYST_SYSTEM_PROMPT}
+
 {mvp_section}
+
+
 
 {few_shot}
 
+
+
 项目上下文：
-{project_context if project_context else "无"}
+
+{project_context if project_context else "无"}{_format_reuse_modules_block(reuse_modules_context)}
+
+
 
 模块名称：{module_name}
+
 模块描述：{description}
+
+
 
 请输出上述 JSON 格式的功能规格。"""
 
+
+
         response = await self._llm.ainvoke(prompt)
-        raw_text = response.content if hasattr(response, "content") else str(response)
+
+        raw_text: str = response.content if hasattr(response, "content") else str(response)
+
         try:
+
             data = extract_json(raw_text)
+
         except ValueError as exc:
+
             raise ValueError(
+
                 f"分析师[{module_name}] JSON 解析失败: {exc}"
+
             ) from exc
 
+
+
         return ModuleSpec(
+
             module_name=data.get("module_name", module_name),
+
             summary=data.get("summary", ""),
+
             api_endpoints=data.get("api_endpoints", []),
+
             data_models=data.get("data_models", []),
+
             logic_flow=data.get("logic_flow", ""),
+
             error_handling=data.get("error_handling", ""),
+
         )
+
+
 
     async def code(
+
         self,
+
         module_name: str,
+
         spec: ModuleSpec,
+
         test_feedback: str = "",
+
         mvp_mode: bool = False,
+
+        reuse_modules_context: str = "",
+
     ) -> ModuleCode:
-        """编码者：根据规格编写代码。
 
-        Args:
-            module_name: 模块名称
-            spec: 分析师产出的规格
-            test_feedback: 前置测试反馈（重试时提供）
+        """编码者：根据规格编写代码与测试。"""
 
-        Returns:
-            ModuleCode 含代码和测试
-        """
-        spec_text = f"""模块名称：{spec.module_name}
-功能概述：{spec.summary}
-API 端点：{', '.join(spec.api_endpoints)}
-数据模型：{', '.join(spec.data_models)}
-核心流程：{spec.logic_flow}
-异常场景：{spec.error_handling}"""
+        if CODE_GEN_TWO_PHASE:
 
-        feedback_section = ""
-        if test_feedback:
-            feedback_section = f"\n前次测试反馈（请修复以下问题）：\n{test_feedback}"
+            return await self._code_two_phase(
 
-        mvp_section = MVP_SCOPE_NOTE if mvp_mode else ""
-        compact_hint = (
-            "\n上次 JSON 输出过长或被截断，请输出更精简的实现（单文件≤120行）。"
-            if "JSON" in test_feedback or "截断" in test_feedback
-            else ""
+                module_name, spec, test_feedback, mvp_mode=mvp_mode,
+
+                reuse_modules_context=reuse_modules_context,
+
+            )
+
+        return await self._code_single_shot(
+
+            module_name, spec, test_feedback, mvp_mode=mvp_mode,
+
+            reuse_modules_context=reuse_modules_context,
+
         )
 
+
+
+    async def _code_single_shot(
+
+        self,
+
+        module_name: str,
+
+        spec: ModuleSpec,
+
+        test_feedback: str = "",
+
+        *,
+
+        mvp_mode: bool = False,
+
+        reuse_modules_context: str = "",
+
+    ) -> ModuleCode:
+
+        """单轮 JSON 同时生成 code + test_code（旧路径）。"""
+
+        spec_text = self._format_spec_text(spec)
+
+        reuse_block = _format_reuse_modules_block(reuse_modules_context)
+
+        feedback_section = ""
+
+        if test_feedback:
+
+            feedback_section = f"\n前次测试反馈（请修复以下问题）：\n{test_feedback}"
+
+
+
+        mvp_section = MVP_SCOPE_NOTE if mvp_mode else ""
+
+        compact_hint = (
+
+            "\n上次 JSON 输出过长或被截断，请输出更精简的实现（单文件≤120行）。"
+
+            if "JSON" in test_feedback or "截断" in test_feedback
+
+            else ""
+
+        )
+
+
+
         prompt = f"""{CODER_SYSTEM_PROMPT}
+
 {mvp_section}
 
-{spec_text}
+
+
+{spec_text}{reuse_block}
+
 {feedback_section}{compact_hint}
+
+
 
 请输出上述 JSON 格式（module_name="{module_name}", language="python"）。"""
 
+
+
         last_error: ValueError | None = None
-        for attempt in range(3):
+
+        for attempt in range(CODE_GEN_PHASE_RETRIES):
+
             response = await self._coder_llm.ainvoke(prompt)
-            raw_text = response.content if hasattr(response, "content") else str(response)
+
+            raw_text: str = response.content if hasattr(response, "content") else str(response)
+
             try:
+
                 data = extract_json(raw_text)
+
                 return ModuleCode(
+
                     module_name=data.get("module_name", module_name),
+
                     code=data.get("code", ""),
+
                     test_code=data.get("test_code", ""),
+
                     language=data.get("language", "python"),
+
                 )
+
             except ValueError as exc:
+
                 last_error = exc
-                prompt = f"""{CODER_SYSTEM_PROMPT}
-{mvp_section}
 
-{spec_text}
-{feedback_section}
+                prompt = self._json_retry_prompt(
 
-⚠️ 第 {attempt + 1} 次 JSON 解析失败：{exc}
-请重新输出完整、有效的 JSON；代码务必精简（单文件≤120行），确保 JSON 可闭合。"""
+                    CODER_SYSTEM_PROMPT, mvp_section, spec_text,
+
+                    feedback_section, exc, attempt,
+
+                )
+
+
 
         raise last_error or ValueError("编码 JSON 解析失败")
 
+
+
+    async def _code_two_phase(
+
+        self,
+
+        module_name: str,
+
+        spec: ModuleSpec,
+
+        test_feedback: str = "",
+
+        *,
+
+        mvp_mode: bool = False,
+
+        reuse_modules_context: str = "",
+
+    ) -> ModuleCode:
+
+        """两轮生成：先 code（就绪校验）→ 再 test_code（就绪校验）。"""
+
+        spec_text = self._format_spec_text(spec)
+
+        reuse_block = _format_reuse_modules_block(reuse_modules_context)
+
+        mvp_section = MVP_SCOPE_NOTE if mvp_mode else ""
+
+        scope = _regen_scope(test_feedback)
+
+        feedback_section = ""
+
+        if test_feedback:
+
+            feedback_section = f"\n前次反馈（请修复）：\n{test_feedback}"
+
+
+
+        module_code = ""
+
+        if scope in ("both", "code"):
+
+            module_code = await self._generate_code_phase(
+
+                module_name, spec_text, mvp_section, feedback_section, mvp_mode,
+
+                spec=spec, reuse_block=reuse_block,
+
+            )
+
+        else:
+
+            module_code = _extract_prior_code_from_feedback(test_feedback)
+
+            if not module_code.strip():
+
+                logger.warning(
+
+                    "[%s] 仅重生成测试但未解析到 prior_code，回退为两轮全量",
+
+                    module_name,
+
+                )
+
+                module_code = await self._generate_code_phase(
+
+                    module_name, spec_text, mvp_section, feedback_section, mvp_mode,
+
+                    spec=spec, reuse_block=reuse_block,
+
+                )
+
+
+
+        test_code = await self._generate_test_phase(
+
+            module_name,
+
+            module_code,
+
+            spec_text,
+
+            mvp_section,
+
+            feedback_section,
+
+            spec=spec, reuse_block=reuse_block,
+
+        )
+
+
+
+        logger.info("[%s] 两轮编码完成: code=%d 行, test=%d 行", module_name,
+
+                    module_code.count("\n") + 1, test_code.count("\n") + 1)
+
+
+
+        return ModuleCode(
+
+            module_name=module_name,
+
+            code=module_code,
+
+            test_code=test_code,
+
+            language="python",
+
+        )
+
+
+
+    async def _generate_code_phase(
+
+        self,
+
+        module_name: str,
+
+        spec_text: str,
+
+        mvp_section: str,
+
+        feedback_section: str,
+
+        mvp_mode: bool,
+
+        *,
+
+        spec: ModuleSpec,
+
+        reuse_block: str = "",
+
+    ) -> str:
+
+        prompt = f"""{CODER_CODE_ONLY_PROMPT}
+
+{mvp_section}
+
+
+
+{spec_text}{reuse_block}
+
+{feedback_section}
+
+
+
+请输出 JSON（module_name="{module_name}", file_name="{module_name}.py"）。"""
+
+
+
+        last_error: ValueError | None = None
+
+        last_feedback = feedback_section
+
+
+
+        for attempt in range(CODE_GEN_PHASE_RETRIES):
+
+            response = await self._coder_llm.ainvoke(prompt)
+
+            raw_text: str = response.content if hasattr(response, "content") else str(response)
+
+            try:
+
+                data = extract_json(raw_text)
+
+                code = data.get("code", "")
+
+                readiness = assess_module_code(
+
+                    code,
+
+                    test_code=None,
+
+                    require_test=False,
+
+                    module_description=spec.summary,
+
+                    spec_summary=spec.summary,
+
+                )
+
+                if readiness.ready:
+
+                    return code
+
+                last_feedback = format_readiness_feedback(readiness)
+
+                prompt = f"""{CODER_CODE_ONLY_PROMPT}
+
+{mvp_section}
+
+
+
+{spec_text}
+
+
+
+{last_feedback}
+
+
+
+请重新输出完整 module code JSON。"""
+
+            except ValueError as exc:
+
+                last_error = exc
+
+                prompt = self._json_retry_prompt(
+
+                    CODER_CODE_ONLY_PROMPT, mvp_section, spec_text,
+
+                    feedback_section, exc, attempt,
+
+                )
+
+
+
+        raise last_error or ValueError(
+
+            f"编码者[{module_name}] 模块代码阶段失败: {last_feedback[:200]}"
+
+        )
+
+
+
+    async def _generate_test_phase(
+
+        self,
+
+        module_name: str,
+
+        module_code: str,
+
+        spec_text: str,
+
+        mvp_section: str,
+
+        feedback_section: str,
+
+        *,
+
+        spec: ModuleSpec,
+
+        reuse_block: str = "",
+
+    ) -> str:
+
+        code_cap = 7000
+
+        code_blob = module_code if len(module_code) <= code_cap else (
+
+            module_code[:code_cap] + "\n# ... (模块代码已截断展示，以你收到的逻辑为准)"
+
+        )
+
+
+
+        prompt = f"""{CODER_TEST_ONLY_PROMPT}
+
+
+
+{spec_text}{reuse_block}
+
+{feedback_section}
+
+
+
+## 已实现的模块代码（请为其编写 pytest）
+
+```python
+
+{code_blob}
+
+```
+
+
+
+请输出 JSON（module_name="{module_name}"）。"""
+
+
+
+        last_error: ValueError | None = None
+
+        last_feedback = feedback_section
+
+
+
+        for attempt in range(CODE_GEN_PHASE_RETRIES):
+
+            response = await self._test_llm.ainvoke(prompt)
+
+            raw_text: str = response.content if hasattr(response, "content") else str(response)
+
+            try:
+
+                data = extract_json(raw_text)
+
+                test_code = data.get("test_code", "")
+
+                readiness = assess_module_code(
+
+                    module_code,
+
+                    test_code,
+
+                    module_description=spec.summary,
+
+                    spec_summary=spec.summary,
+
+                )
+
+                if readiness.ready:
+
+                    return test_code
+
+                last_feedback = format_readiness_feedback(readiness)
+
+                prompt = f"""{CODER_TEST_ONLY_PROMPT}
+
+
+
+{spec_text}
+
+
+
+{last_feedback}
+
+
+
+## 模块代码（勿改，只补测试）
+
+```python
+
+{code_blob}
+
+```
+
+
+
+请重新输出完整 test_code JSON。"""
+
+            except ValueError as exc:
+
+                last_error = exc
+
+                prompt = self._json_retry_prompt(
+
+                    CODER_TEST_ONLY_PROMPT, "", spec_text,
+
+                    feedback_section, exc, attempt,
+
+                    extra="只输出 test_code JSON。",
+
+                )
+
+
+
+        raise last_error or ValueError(
+
+            f"编码者[{module_name}] 测试代码阶段失败: {last_feedback[:200]}"
+
+        )
+
+
+
+    @staticmethod
+
+    def _format_spec_text(spec: ModuleSpec) -> str:
+
+        return f"""模块名称：{spec.module_name}
+
+功能概述：{spec.summary}
+
+API 端点：{', '.join(spec.api_endpoints)}
+
+数据模型：{', '.join(spec.data_models)}
+
+核心流程：{spec.logic_flow}
+
+异常场景：{spec.error_handling}"""
+
+
+
+    @staticmethod
+
+    def _json_retry_prompt(
+
+        system_prompt: str,
+
+        mvp_section: str,
+
+        spec_text: str,
+
+        feedback_section: str,
+
+        exc: ValueError,
+
+        attempt: int,
+
+        *,
+
+        extra: str = "",
+
+    ) -> str:
+
+        tail = f"\n{extra}" if extra else ""
+
+        return f"""{system_prompt}
+
+{mvp_section}
+
+
+
+{spec_text}
+
+{feedback_section}
+
+
+
+⚠️ 第 {attempt + 1} 次 JSON 解析失败：{exc}
+
+请重新输出完整、有效的 JSON。{tail}"""
+
+
+
     async def test(
+
         self, module_name: str, code: ModuleCode, spec: ModuleSpec
+
     ) -> ModuleTestResult:
-        """测试者：审查代码和测试的充分性。
 
-        Args:
-            module_name: 模块名称
-            code: 编码产出
-            spec: 原始规格
+        """测试者：审查代码和测试的充分性。"""
 
-        Returns:
-            ModuleTestResult
-        """
         prompt = f"""{TESTER_SYSTEM_PROMPT}
 
+
+
 模块名称：{module_name}
+
 功能规格：{spec.summary}
+
 核心流程：{spec.logic_flow}
+
 异常场景：{spec.error_handling}
 
+
+
 代码：
+
 ```python
+
 {code.code[:3000]}
+
 ```
 
+
+
 测试代码：
+
 ```python
+
 {code.test_code[:2000]}
+
 ```
+
+
 
 请审查并输出 JSON 结果。"""
 
+
+
         response = await self._llm.ainvoke(prompt)
-        raw_text = response.content if hasattr(response, "content") else str(response)
+
+        raw_text: str = response.content if hasattr(response, "content") else str(response)
+
         try:
+
             data = extract_json(raw_text)
+
         except ValueError as exc:
+
             raise ValueError(
+
                 f"测试者[{module_name}] JSON 解析失败: {exc}"
+
             ) from exc
 
+
+
         return ModuleTestResult(
+
             module_name=data.get("module_name", module_name),
+
             passed=data.get("passed", False),
+
             details=data.get("summary", ""),
+
         )
+
+

@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import ast
 import re
 from dataclasses import dataclass, field
 
@@ -76,13 +77,80 @@ def _detect_truncation(source: str) -> list[str]:
     return issues
 
 
+_DANGLING_LINE_ENDS = (
+    "==", "!=", "<=", ">=", "<", ">",
+    "+", "-", "*", "/", "%", "//",
+    ",", "(", "[", "{",
+    " and", " or", " not", " in", " is",
+)
+
+
+def _detect_eof_inside_block(source: str, *, label: str = "代码") -> list[str]:
+    """文件在缩进块内结束（常见于 test 写到一半被截断）。"""
+    lines = source.splitlines()
+    while lines and not lines[-1].strip():
+        lines.pop()
+    if not lines:
+        return []
+    last = lines[-1]
+    if not (last.startswith(" ") or last.startswith("\t")):
+        return []
+    stripped = last.strip()
+    for tok in _DANGLING_LINE_ENDS:
+        if stripped.endswith(tok):
+            return [f"{label}在块内末尾语句未完成（…{stripped[-40:]}），疑似截断"]
+    if stripped.endswith(":"):
+        return [f"{label}末尾以冒号结束、语句体缺失，疑似截断"]
+    if stripped.startswith("assert"):
+        try:
+            compile(f"def _trunc_check():\n{last}\n    pass\n", "<check>", "exec")
+        except SyntaxError as exc:
+            return [f"{label}末尾 assert 不完整（{exc.msg}），疑似截断"]
+    return []
+
+
+def _detect_incomplete_function_endings(source: str) -> list[str]:
+    """AST：函数体最后一行疑似未写完。"""
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return []
+    lines = source.splitlines()
+    issues: list[str] = []
+    incomplete_last = frozenset(
+        (":", ",", "+", "-", "*", "/", "=", "(", "[", "{",
+         "and", "or", "not", "in", "is", "as", "with", "if",
+         "elif", "else", "for", "while", "try", "except", "finally",
+         "yield", "return", "assert", "raise", "import", "from")
+    )
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.FunctionDef):
+            continue
+        if not node.body:
+            issues.append(f"函数 {node.name} 函数体为空")
+            continue
+        end_ln = node.end_lineno
+        if not end_ln or end_ln > len(lines):
+            continue
+        last_in_fn = lines[end_ln - 1].strip()
+        if not last_in_fn:
+            continue
+        tail = last_in_fn.split()[-1].rstrip(":").lower()
+        if tail in incomplete_last or last_in_fn.endswith(
+            ("==", "!=", ",", "(", "[", "{", " and", " or")
+        ):
+            issues.append(f"函数 {node.name} 末尾不完整，疑似截断")
+    return issues
+
+
 def assess_module_code(
     code: str,
-    test_code: str = "",
+    test_code: str | None = "",
     *,
     language: str = "python",
     module_description: str = "",
     spec_summary: str = "",
+    require_test: bool = True,
 ) -> CodeReadiness:
     """评估模块代码是否可进入测试/审查。
 
@@ -102,6 +170,8 @@ def assess_module_code(
     if language.lower() == "python":
         trunc = _detect_truncation(code)
         issues.extend(trunc)
+        issues.extend(_detect_eof_inside_block(code, label="模块代码"))
+        issues.extend(_detect_incomplete_function_endings(code))
 
         syntax = _check_python_syntax(code)
         if syntax:
@@ -109,10 +179,16 @@ def assess_module_code(
 
         if test_code and test_code.strip():
             issues.extend(f"测试: {t}" for t in _detect_truncation(test_code))
+            issues.extend(
+                f"测试: {t}" for t in _detect_eof_inside_block(test_code, label="测试代码")
+            )
+            issues.extend(
+                f"测试: {t}" for t in _detect_incomplete_function_endings(test_code)
+            )
             test_syntax = _check_python_syntax(test_code, "<test>")
             if test_syntax:
                 issues.append(f"测试: {test_syntax}")
-        elif test_code is not None and not test_code.strip():
+        elif require_test and test_code is not None and not str(test_code).strip():
             issues.append("测试代码为空")
 
         if module_description or spec_summary:
@@ -146,4 +222,8 @@ def format_readiness_feedback(readiness: CodeReadiness) -> str:
         "syntax": "上次代码存在语法或未闭合结构，请修复后再提交。",
     }.get(readiness.phase, "编码产出尚未就绪，请完善后再提交。")
     detail = "\n".join(f"  - {issue}" for issue in readiness.issues[:8])
-    return f"{header}\n具体问题：\n{detail}\n请输出更精简但语法完整、可 compile 的 JSON 与 Python 代码。"
+    return (
+        f"{header}\n具体问题：\n{detail}\n"
+        "请输出更精简但语法完整、可 compile 的 JSON 与 Python 代码。\n"
+        "测试代码：最多 4 个 test_ 函数，每个函数体必须完整结束（禁止写到 assert 一半）。"
+    )
