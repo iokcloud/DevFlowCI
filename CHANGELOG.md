@@ -4,6 +4,9 @@
 
 ## [Unreleased]
 
+### 变更
+- **GitHub Actions**：删除 `.github/workflows/` 下全部 workflow（CI、E2E、learnings 定时任务），push 不再触发远程流水线
+
 ### 修复
 - **集成/全量测试沙箱**：写入 `main.py`、合并 `requirements` 并 pip 安装到 `.deps`；补全目录上已通过依赖模块；collect error 不再误触发「0 failed 再修」
 

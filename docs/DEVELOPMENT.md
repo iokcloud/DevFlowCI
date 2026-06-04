@@ -134,7 +134,7 @@ pytest tests/ -m "not integration" -v
 pytest tests/ -v
 ```
 
-CI 策略：push/PR 先 `ruff check .`，再单元测试；合并到 `master` 后额外跑集成测试。见 `.github/workflows/ci.yml`。
+CI 策略（本地）：提交前运行 pre-commit（`ruff check .` + `pytest`）。仓库已移除 GitHub Actions workflow，不再在 push 时自动跑 CI。
 
 集成测试（mock LLM，无需 API Key，8 项）：
 
